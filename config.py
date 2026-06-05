@@ -8,7 +8,42 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
-DATA_DIR = Path(os.getenv("DATA_DIR") or os.getenv("RAILWAY_VOLUME_MOUNT_PATH") or BASE_DIR / "data")
+
+
+def _is_railway() -> bool:
+    return any(
+        os.getenv(name)
+        for name in (
+            "RAILWAY_ENVIRONMENT",
+            "RAILWAY_PROJECT_ID",
+            "RAILWAY_SERVICE_ID",
+            "RAILWAY_DEPLOYMENT_ID",
+        )
+    )
+
+
+def _resolve_data_dir() -> Path:
+    explicit_data_dir = os.getenv("DATA_DIR")
+    if explicit_data_dir:
+        return Path(explicit_data_dir)
+
+    railway_volume_path = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+    if railway_volume_path:
+        return Path(railway_volume_path)
+
+    if _is_railway():
+        common_volume_path = Path("/data")
+        if common_volume_path.exists():
+            return common_volume_path
+        raise RuntimeError(
+            "Railway persistent storage is not configured. Add a Volume to the bot service "
+            "and mount it at /data, or set DATA_DIR to the mounted volume path."
+        )
+
+    return BASE_DIR / "data"
+
+
+DATA_DIR = _resolve_data_dir()
 UPLOAD_DIR = DATA_DIR / "uploads"
 AVATAR_DIR = DATA_DIR / "avatars"
 DATABASE_PATH = DATA_DIR / "database.db"

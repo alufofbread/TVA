@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 
 from avatars import cache_avatar_bytes
-from config import BOT_TOKEN, ENV_PATH, GUILD_ID, UPLOAD_DIR, ensure_directories
+from config import BOT_TOKEN, DATABASE_PATH, DATA_DIR, ENV_PATH, GUILD_ID, UPLOAD_DIR, ensure_directories
 from dashboard.creator_stats import render_creator_stats
 from dashboard.leaderboard import render_leaderboard
 from dashboard.trends import render_creator_trends
@@ -240,6 +240,8 @@ async def profile_import_creator_autocomplete(interaction: discord.Interaction, 
 
 
 def main() -> None:
+    print(f"Using data directory: {DATA_DIR}", flush=True)
+    print(f"Using database: {DATABASE_PATH}", flush=True)
     bot.run(get_required_bot_token())
 
 

@@ -57,6 +57,8 @@ DISCORD_GUILD_ID=your-server-id
 
 After it is live, use `/ping` in Discord to confirm the hosted bot is online. Your partner can then use `/import` with the daily spreadsheet without your PC being on.
 
+If the bot is hosted on Railway without a persistent Volume, it will refuse to start. This prevents imports from being saved to temporary container storage and disappearing when Railway restarts or redeploys the service.
+
 ## Invite URL
 
 In the Discord Developer Portal, open **OAuth2 > URL Generator**.
