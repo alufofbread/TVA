@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 
 from PIL import ImageDraw
@@ -22,7 +21,6 @@ from dashboard.style import (
     rounded,
     text,
 )
-from dashboard.trends import TrendPoint, load_creator_daily_trends
 from importer import get_active_incentive_tier, get_tier
 
 
@@ -68,26 +66,19 @@ def _activeness_level(creator: Creator) -> int:
 
 
 def _activeness_panel(draw: ImageDraw.ImageDraw, creator: Creator) -> None:
-    rounded(draw, (36, 686, 1038, 824), 10, COLORS["panel"], COLORS["border"])
+    rounded(draw, (36, 542, 1038, 680), 10, COLORS["panel"], COLORS["border"])
     current_level = _activeness_level(creator)
     next_targets = ACTIVENESS_LEVELS[min(current_level + 1, len(ACTIVENESS_LEVELS) - 1)]
 
-    text(draw, (62, 712), "ACTIVENESS LEVEL", 13, COLORS["muted"], True)
-    rounded(draw, (62, 736, 170, 798), 12, "#082616", COLORS["green"])
-    text(draw, (116, 756), f"L{current_level}", 30, COLORS["green"], True, "ma")
-    text(draw, (194, 745), "Current creator activity score", 18, COLORS["text"], True)
+    text(draw, (62, 568), "ACTIVENESS LEVEL", 13, COLORS["muted"], True)
+    rounded(draw, (62, 592, 170, 654), 12, "#082616", COLORS["green"])
+    text(draw, (116, 623), f"L{current_level}", 30, COLORS["green"], True, "mm")
+    text(draw, (194, 601), "Current creator activity score", 18, COLORS["text"], True)
     if current_level >= ACTIVENESS_LEVELS[-1][0]:
-        text(draw, (194, 772), "Max level reached for the month.", 14, COLORS["subtext"])
+        text(draw, (194, 628), "Max level reached for the month.", 14, COLORS["subtext"])
     else:
         _, days, hours, diamonds = next_targets
-        text(draw, (194, 772), f"Next: {days} valid days, {hours}h live, {format_int(diamonds)} diamonds", 14, COLORS["subtext"])
-
-
-def _latest_daily_point(creator: Creator) -> TrendPoint:
-    points = load_creator_daily_trends(creator)
-    if points:
-        return points[-1]
-    return TrendPoint(date.today(), creator.diamonds, creator.hours, creator.new_followers)
+        text(draw, (194, 628), f"Next: {days} valid days, {hours}h live, {format_int(diamonds)} diamonds", 14, COLORS["subtext"])
 
 
 def _next_league_progress(diamonds: int) -> tuple[str, str, int | None, float]:
@@ -112,8 +103,7 @@ def _next_league_progress(diamonds: int) -> tuple[str, str, int | None, float]:
 
 
 def render_creator_stats(creator: Creator, total_creators: int, output_path: Path) -> Path:
-    image, draw = canvas(1100, 860)
-    daily = _latest_daily_point(creator)
+    image, draw = canvas(1100, 720)
     current_league, next_label, next_threshold, pct = _next_league_progress(creator.diamonds)
 
     rounded(draw, (24, 22, 1070, 136), 12, COLORS["panel_alt"], COLORS["border"])
@@ -132,41 +122,38 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     )
     text(draw, (128, 86), creator.creator_name, 42, COLORS["text"], True, "lm")
     text(draw, (128, 121), f"{league_name(creator.tier)} league creator  |  Rank #{creator.rank} of {total_creators}", 18, COLORS["subtext"], False, "lm")
-    draw_fasttrack_logo(image, draw, 884, 42, 154, 74)
+    draw_fasttrack_logo(image, draw, 944, 32, 94, 94, framed=False)
     line(draw, (0, 145, 1100, 145), COLORS["border"], 1)
 
-    text(draw, (36, 166), "LATEST DAILY SNAPSHOT", 12, COLORS["muted"], True)
-    _metric(draw, 36, 184, 235, "Daily Diamonds", format_int(daily.diamonds), COLORS["gold"])
-    _metric(draw, 291, 184, 215, "Daily Hours", format_hours(daily.hours), COLORS["blue"])
+    text(draw, (36, 166), "MONTHLY TOTALS", 12, COLORS["muted"], True)
+    _metric(draw, 36, 184, 235, "Total Diamonds", format_int(creator.diamonds), COLORS["gold"])
+    _metric(draw, 291, 184, 215, "Total Hours", format_hours(creator.hours), COLORS["blue"])
     _metric(draw, 526, 184, 205, "Valid Days", str(creator.days), COLORS["green"])
-    _metric(draw, 751, 184, 205, "Daily Followers", format_int(daily.new_followers), COLORS["purple"])
+    _metric(draw, 751, 184, 205, "New Followers", format_int(creator.new_followers), COLORS["purple"])
 
-    text(draw, (36, 310), "MONTH TO DATE", 12, COLORS["muted"], True)
-    _metric(draw, 36, 328, 235, "Monthly Diamonds", format_int(creator.diamonds), COLORS["gold"])
-    _metric(draw, 291, 328, 215, "Monthly Hours", format_hours(creator.hours), COLORS["blue"])
-    _metric(draw, 526, 328, 205, "Valid Days", str(creator.days), COLORS["green"])
-    _metric(draw, 751, 328, 205, "New Followers", format_int(creator.new_followers), COLORS["purple"])
-
-    rounded(draw, (36, 472, 650, 666), 10, COLORS["panel"], COLORS["border"])
-    text(draw, (62, 502), "NEXT LEAGUE PROGRESS", 13, COLORS["muted"], True)
+    rounded(draw, (36, 328, 650, 522), 10, COLORS["panel"], COLORS["border"])
+    text(draw, (62, 358), "NEXT LEAGUE PROGRESS", 13, COLORS["muted"], True)
     next_value = f"{format_int(next_threshold)} diamonds" if next_threshold else f"{format_int(creator.diamonds)} diamonds"
-    text(draw, (62, 540), current_league, 32, COLORS["text"], True)
-    text(draw, (588, 536), next_label, 19, COLORS["subtext"], True, "ra")
-    text(draw, (588, 562), next_value, 14, COLORS["muted"], False, "ra")
-    rounded(draw, (58, 592, 592, 622), 15, "#231D08")
-    rounded(draw, (62, 596, 588, 618), 11, "#20242A")
-    rounded(draw, (62, 596, 62 + int(526 * pct / 100), 618), 11, COLORS["gold"])
-    rounded(draw, (272, 590, 378, 624), 17, "#050607", COLORS["gold"])
-    text(draw, (325, 599), f"{pct:.1f}% complete", 13, COLORS["gold"], True, "ma")
-    text(draw, (62, 636), f"Unlocks the {next_label} league when the diamond goal lands.", 12, COLORS["subtext"])
+    text(draw, (62, 396), current_league, 32, COLORS["text"], True)
+    text(draw, (588, 392), next_label, 19, COLORS["subtext"], True, "ra")
+    text(draw, (588, 418), next_value, 14, COLORS["muted"], False, "ra")
+    rounded(draw, (62, 452, 588, 474), 11, "#20242A")
+    fill_w = int(526 * pct / 100)
+    rounded(draw, (62, 452, 62 + fill_w, 474), 11, COLORS["gold"])
+    if pct >= 10:
+        pct_label = f"{pct:.1f}%"
+        label_x = 62 + min(fill_w // 2, fill_w - 26)
+        text(draw, (label_x + 1, 454), pct_label, 15, "#6A4A00", True, "ma")
+        text(draw, (label_x, 453), pct_label, 15, "#FFFFFF", True, "ma")
+    text(draw, (62, 492), f"Unlocks the {next_label} league when the diamond goal lands.", 12, COLORS["subtext"])
 
-    rounded(draw, (680, 472, 1038, 666), 10, COLORS["panel"], COLORS["border"])
+    rounded(draw, (680, 328, 1038, 522), 10, COLORS["panel"], COLORS["border"])
     incentive = get_active_incentive_tier(creator.diamonds, creator.days, creator.hours)
-    text(draw, (706, 498), f"{league_name(int(incentive['tier'])).upper()} INCENTIVE", 13, COLORS["muted"], True)
-    _status_badge(draw, 874, 488, creator.incentive_status)
-    _progress(draw, 706, 528, 292, "Diamonds", creator.diamonds, incentive["diamonds"], lambda v: format_int(v), COLORS["gold"])
-    _progress(draw, 706, 576, 292, "Days", creator.days, incentive["days"], lambda v: str(int(v)), COLORS["green"])
-    _progress(draw, 706, 624, 292, "Hours", creator.hours, incentive["hours"], lambda v: f"{int(round(v))}h", COLORS["blue"])
+    text(draw, (706, 354), f"{league_name(int(incentive['tier'])).upper()} INCENTIVE", 13, COLORS["muted"], True)
+    _status_badge(draw, 874, 344, creator.incentive_status)
+    _progress(draw, 706, 384, 292, "Diamonds", creator.diamonds, incentive["diamonds"], lambda v: format_int(v), COLORS["gold"])
+    _progress(draw, 706, 432, 292, "Days", creator.days, incentive["days"], lambda v: str(int(v)), COLORS["green"])
+    _progress(draw, 706, 480, 292, "Hours", creator.hours, incentive["hours"], lambda v: f"{int(round(v))}h", COLORS["blue"])
 
     _activeness_panel(draw, creator)
 

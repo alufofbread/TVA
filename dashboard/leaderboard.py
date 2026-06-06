@@ -18,6 +18,7 @@ from dashboard.style import (
     format_int,
     incentive_label,
     league_color,
+    league_name,
     line,
     rounded,
     text,
@@ -25,16 +26,16 @@ from dashboard.style import (
 )
 
 TIER_STYLES = {
-    1: {"accent": "#7DF9FF", "fill": "#062229", "glow": "#123A42"},
-    2: {"accent": "#24D366", "fill": "#062815", "glow": "#0D3A21"},
-    3: {"accent": "#52E5FF", "fill": "#071D3D", "glow": "#102D58"},
-    4: {"accent": "#257BFF", "fill": "#081B35", "glow": "#0E2B5C"},
-    5: {"accent": "#8B5CF6", "fill": "#1A1233", "glow": "#2B1C52"},
-    6: {"accent": "#D946EF", "fill": "#25102F", "glow": "#3A1B4D"},
-    7: {"accent": "#FF5DA2", "fill": "#2A1020", "glow": "#451A34"},
-    8: {"accent": "#FFB020", "fill": "#2A2108", "glow": "#49360D"},
-    9: {"accent": "#F4C430", "fill": "#292407", "glow": "#4A3F0A"},
-    10: {"accent": "#F8FAFC", "fill": "#181B20", "glow": "#343A44"},
+    1: {"accent": "#22C55E", "fill": "#062815", "glow": "#0D3A21"},
+    2: {"accent": "#4ADE80", "fill": "#082B18", "glow": "#124126"},
+    3: {"accent": "#38BDF8", "fill": "#071D3D", "glow": "#102D58"},
+    4: {"accent": "#2563EB", "fill": "#081B35", "glow": "#0E2B5C"},
+    5: {"accent": "#FACC15", "fill": "#2A2108", "glow": "#49360D"},
+    6: {"accent": "#F59E0B", "fill": "#2D1E07", "glow": "#4B320A"},
+    7: {"accent": "#EA580C", "fill": "#301807", "glow": "#4E270C"},
+    8: {"accent": "#A78BFA", "fill": "#1A1233", "glow": "#2B1C52"},
+    9: {"accent": "#8B5CF6", "fill": "#1A1233", "glow": "#2B1C52"},
+    10: {"accent": "#6D28D9", "fill": "#180F2E", "glow": "#29184A"},
 }
 
 ROW_TEXT_Y_OFFSET = -2
@@ -87,7 +88,7 @@ def _status_pill(draw: ImageDraw.ImageDraw, x: int, y: int, status: str) -> None
 
 def _league_pill(draw: ImageDraw.ImageDraw, x: int, y: int, tier: int) -> None:
     style = TIER_STYLES.get(tier, TIER_STYLES[10])
-    label = f"Tier {tier}"
+    label = league_name(tier)
     width = text_width(label, 14, True) + 32
 
     rounded(draw, (x - 2, y - 2, x + width + 2, y + 34), 18, style["glow"])
@@ -95,6 +96,18 @@ def _league_pill(draw: ImageDraw.ImageDraw, x: int, y: int, tier: int) -> None:
     line(draw, (x + 10, y + 6, x + 25, y + 6), "#F8FAFC", 1)
     line(draw, (x + width - 28, y + 26, x + width - 11, y + 26), COLORS["cyan"], 1)
     text(draw, (x + width // 2, y + 7), label, 14, style["accent"], True, "ma")
+
+
+def _rank_avatar_color(rank: int) -> str:
+    if rank <= 2:
+        return league_color(rank)
+    if rank <= 4:
+        return league_color(rank)
+    if rank <= 7:
+        return league_color(rank)
+    if rank <= 10:
+        return league_color(rank)
+    return COLORS["muted"]
 
 
 def _most_improved(creators: list[Creator]) -> Creator | None:
@@ -130,7 +143,7 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
     rounded(draw, (24, 22, 1176, 118), 16, "#080A0D", "#20252B")
     text(draw, (48, 44), "VEXTAL ANALYTICS", 12, COLORS["muted"], True)
     text(draw, (600, 35), BRAND_NAME, 34, COLORS["text"], True, "ma")
-    draw_fasttrack_logo(image, draw, 958, 34, 190, 74)
+    draw_fasttrack_logo(image, draw, 1060, 30, 82, 82, framed=False)
     line(draw, (48, 96, 914, 96), "#1A1F25", 1)
 
     text(draw, (36, 146), "MONTH TO DATE", 13, COLORS["gold"], True)
@@ -167,13 +180,13 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
     rounded(draw, (32, table_y, 1168, table_y + 54), 14, "#11151A", "#22272E")
     headers = [
         ("RANK", 54),
-        ("CREATOR", 142),
+        ("CREATOR", 154),
         ("DIAMONDS", 410),
-        ("FOLLOWERS", 512),
-        ("DAYS", 616),
-        ("HOURS", 682),
-        ("TIER", 778),
-        ("INCENTIVE", 930),
+        ("HOURS", 532),
+        ("DAYS", 624),
+        ("FOLLOWERS", 696),
+        ("LEAGUE", 812),
+        ("INCENTIVE", 958),
     ]
     for header, x in headers:
         text(draw, (x, table_y + 21), header, 12, COLORS["muted"], True)
@@ -193,22 +206,22 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
         circular_avatar(
             image,
             draw,
-            94,
+            98,
             row_mid - 24,
             48,
             creator.creator_name,
             creator.rank,
             creator.avatar_path,
-            league_color(creator.tier),
-            str(creator.tier),
+            _rank_avatar_color(creator.rank),
+            str(creator.rank),
         )
-        _row_text(draw, 154, row_mid, _ellipsize(creator.creator_name, 21), 22, COLORS["text"], True, "lm")
+        _row_text(draw, 166, row_mid, _ellipsize(creator.creator_name, 18), 22, COLORS["text"], True, "lm")
         _row_text(draw, 490, row_mid, format_int(creator.diamonds), 21, COLORS["text"], True, "rm")
-        _row_text(draw, 588, row_mid, format_int(creator.new_followers), 19, COLORS["subtext"], False, "rm")
-        _row_text(draw, 636, row_mid, str(creator.days), 19, COLORS["subtext"], False, "mm")
-        _row_text(draw, 720, row_mid, format_hours(creator.hours), 19, COLORS["subtext"], False, "mm")
-        _league_pill(draw, 778, row_mid - 16, creator.tier)
-        _status_pill(draw, 930, row_mid - 16, creator.incentive_status)
+        _row_text(draw, 572, row_mid, format_hours(creator.hours), 19, COLORS["subtext"], False, "mm")
+        _row_text(draw, 644, row_mid, str(creator.days), 19, COLORS["subtext"], False, "mm")
+        _row_text(draw, 782, row_mid, format_int(creator.new_followers), 19, COLORS["subtext"], False, "rm")
+        _league_pill(draw, 812, row_mid - 16, creator.tier)
+        _status_pill(draw, 958, row_mid - 16, creator.incentive_status)
         line(draw, (48, y + row_h, 1152, y + row_h), "#14191E", 1)
         y += row_h
 

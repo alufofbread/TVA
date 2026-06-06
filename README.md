@@ -92,7 +92,7 @@ The importer accepts common aliases:
 - Data Period: `Data period`, `period`, `reporting period`
 - Avatar URL (optional): `avatar url`, `profile picture url`, `profile image url`
 
-Duplicate creator rows are grouped by creator name using the latest month-to-date snapshot for that creator. The report month is taken from `Data period` or from filenames like `Creator data 2026_06_02 14_59 UTC+0 (1)`.
+Duplicate creator rows are grouped by creator name and added together so the stored creator snapshot is the monthly total. The report month is taken from `Data period` or from filenames like `Creator data 2026_06_02 14_59 UTC+0 (1)`.
 If no avatar URL is provided, the bot tries to fetch the TikTok profile image using the creator ID as the TikTok username, then falls back to initials if TikTok blocks or omits the image.
 
 ## Tier System

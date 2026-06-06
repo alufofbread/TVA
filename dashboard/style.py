@@ -22,16 +22,16 @@ LEAGUE_NAMES = {
 }
 
 LEAGUE_COLORS = {
-    1: "#7DF9FF",
-    2: "#7DF9FF",
-    3: "#24D366",
-    4: "#24D366",
-    5: "#8B5CF6",
-    6: "#8B5CF6",
-    7: "#F4C430",
-    8: "#F4C430",
-    9: "#F4C430",
-    10: "#F4C430",
+    1: "#22C55E",
+    2: "#4ADE80",
+    3: "#38BDF8",
+    4: "#2563EB",
+    5: "#FACC15",
+    6: "#F59E0B",
+    7: "#EA580C",
+    8: "#A78BFA",
+    9: "#8B5CF6",
+    10: "#6D28D9",
 }
 
 COLORS = {
@@ -119,14 +119,17 @@ def draw_fasttrack_logo(
     logo_path = fasttrack_logo_path()
     if logo_path:
         with Image.open(logo_path) as source:
-            logo = ImageOps.contain(source.convert("RGBA"), (w * 2 - 16, h * 2 - 16), Image.Resampling.LANCZOS)
+            padding = 10 if min(w, h) <= 90 else 14
+            logo = ImageOps.contain(source.convert("RGBA"), (w * 2 - padding * 2, h * 2 - padding * 2), Image.Resampling.LANCZOS)
         paste_x = (x * 2) + ((w * 2 - logo.width) // 2)
         paste_y = (y * 2) + ((h * 2 - logo.height) // 2)
         image.paste(logo, (paste_x, paste_y), logo)
         return
 
-    text(draw, (x + w // 2, y + h // 2 - 8), "FASTTRACK", 18, COLORS["gold"], True, "ma")
-    text(draw, (x + w // 2, y + h // 2 + 16), "AGENCY", 12, COLORS["subtext"], True, "ma")
+    title_size = 17 if w >= 140 else 12
+    sub_size = 11 if w >= 140 else 8
+    text(draw, (x + w // 2, y + h // 2 - 8), "FASTTRACK", title_size, COLORS["gold"], True, "ma")
+    text(draw, (x + w // 2, y + h // 2 + 14), "AGENCY", sub_size, COLORS["subtext"], True, "ma")
 
 
 def text_width(value: str, size: int, bold: bool = False) -> int:

@@ -304,13 +304,23 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
     else:
         df["_period_sort"] = report_date or date.min
 
-    grouped = (
-        df.sort_values(["creator_name", "_period_sort"])
-        .groupby("creator_name", as_index=False)
-        .tail(1)
-        .sort_values(["diamonds", "creator_name"], ascending=[False, True])
-        .reset_index(drop=True)
-    )
+    grouped_rows: list[dict[str, Any]] = []
+    for creator_name, group in df.sort_values(["creator_name", "_period_sort"]).groupby("creator_name", sort=False):
+        latest = group.iloc[-1]
+        monthly = {
+            "creator_name": creator_name,
+            "creator_id": latest["creator_id"],
+            "diamonds": group["diamonds"].sum(),
+            "hours": group["hours"].sum(),
+            "days": group["days"].sum(),
+            "battles": group["battles"].sum(),
+            "new_followers": group["new_followers"].sum(),
+            "previous_month_diamonds": latest["previous_month_diamonds"],
+            "avatar_url": latest.get("avatar_url", ""),
+        }
+        grouped_rows.append(monthly)
+
+    grouped = pd.DataFrame(grouped_rows).sort_values(["diamonds", "creator_name"], ascending=[False, True]).reset_index(drop=True)
 
     creators: list[dict] = []
     for index, row in grouped.iterrows():
@@ -319,7 +329,6 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
         hours = round(float(row["hours"]), 2)
         battles = int(round(row["battles"]))
         new_followers = int(round(row["new_followers"]))
-        previous_month_diamonds = int(round(row["previous_month_diamonds"]))
         creator_id = clean_identifier(row["creator_id"], row["creator_name"])
         avatar_url = clean_optional_text(row.get("avatar_url", ""))
         cached_avatar = cache_avatar(creator_id, avatar_url) if cache_avatars else None
@@ -336,7 +345,7 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
                 "days": days,
                 "battles": battles,
                 "new_followers": new_followers,
-                "tier": get_tier(previous_month_diamonds),
+                "tier": get_tier(diamonds),
                 "rank": index + 1,
                 "incentive_status": incentive_status(diamonds, days, hours, report_date),
                 "avatar_url": avatar_url,
