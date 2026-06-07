@@ -40,6 +40,18 @@ TIER_STYLES = {
 
 ROW_TEXT_Y_OFFSET = -2
 
+COLUMNS = {
+    "rank": 68,
+    "avatar": 118,
+    "creator": 274,
+    "diamonds": 450,
+    "hours": 566,
+    "days": 646,
+    "followers": 744,
+    "league": 850,
+    "incentive": 1026,
+}
+
 
 def _month_progress(today: date | None = None) -> str:
     current = today or date.today()
@@ -64,6 +76,11 @@ def _pill(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, fill: str, outl
     text(draw, (x + width // 2, y + 7), label, 14, color, True, "ma")
 
 
+def _centered_pill(draw: ImageDraw.ImageDraw, center_x: int, y: int, label: str, fill: str, outline: str, color: str) -> None:
+    width = text_width(label, 14, True) + 32
+    _pill(draw, center_x - width // 2, y, label, fill, outline, color)
+
+
 def _summary_card(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, label: str, value: str, accent: str, subtitle: str, value_size: int = 25) -> None:
     rounded(draw, (x + 3, y + 5, x + w + 3, y + 123), 12, "#050607")
     rounded(draw, (x, y, x + w, y + 118), 12, COLORS["panel"], "#252A30")
@@ -86,6 +103,17 @@ def _status_pill(draw: ImageDraw.ImageDraw, x: int, y: int, status: str) -> None
     _pill(draw, x, y, label, fill, color, color)
 
 
+def _centered_status_pill(draw: ImageDraw.ImageDraw, center_x: int, y: int, status: str) -> None:
+    label, color = incentive_label(status)
+    if status == "ACHIEVED":
+        fill = "#082616"
+    elif status == "NOT_ACHIEVABLE":
+        fill = "#2B0D13"
+    else:
+        fill = "#2A2108"
+    _centered_pill(draw, center_x, y, label, fill, color, color)
+
+
 def _league_pill(draw: ImageDraw.ImageDraw, x: int, y: int, tier: int) -> None:
     style = TIER_STYLES.get(tier, TIER_STYLES[10])
     label = league_name(tier)
@@ -98,16 +126,13 @@ def _league_pill(draw: ImageDraw.ImageDraw, x: int, y: int, tier: int) -> None:
     text(draw, (x + width // 2, y + 7), label, 14, style["accent"], True, "ma")
 
 
-def _rank_avatar_color(rank: int) -> str:
-    if rank <= 2:
-        return league_color(rank)
-    if rank <= 4:
-        return league_color(rank)
-    if rank <= 7:
-        return league_color(rank)
-    if rank <= 10:
-        return league_color(rank)
-    return COLORS["muted"]
+def _centered_league_pill(draw: ImageDraw.ImageDraw, center_x: int, y: int, tier: int) -> None:
+    width = text_width(league_name(tier), 14, True) + 32
+    _league_pill(draw, center_x - width // 2, y, tier)
+
+
+def _tier_avatar_color(tier: int) -> str:
+    return league_color(tier)
 
 
 def _most_improved(creators: list[Creator]) -> Creator | None:
@@ -133,10 +158,26 @@ def _row_text(
     text(draw, (x, y + ROW_TEXT_Y_OFFSET), value, size, fill, bold, anchor)
 
 
+def _tier_border_legend(draw: ImageDraw.ImageDraw, y: int) -> None:
+    text(draw, (36, y + 9), "TIER BORDERS", 11, COLORS["muted"], True, "lm")
+    items = [
+        ("Rookie", 1),
+        ("Pro", 3),
+        ("All Star", 5),
+        ("Elite", 8),
+    ]
+    for index, (label, tier) in enumerate(items):
+        x = 184 + index * 190
+        color = league_color(tier)
+        rounded(draw, (x, y, x + 138, y + 30), 15, "#090B0D", "#22272E")
+        draw.ellipse(((x + 12) * 2, (y + 7) * 2, (x + 28) * 2, (y + 23) * 2), fill="#11151A", outline=color, width=3)
+        text(draw, (x + 80, y + 8), label, 12, color, True, "ma")
+
+
 def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_path: Path) -> Path:
     visible = creators[:15]
     row_h = 78
-    height = max(925, 326 + (len(visible) + 1) * row_h + 70)
+    height = max(995, 326 + (len(visible) + 1) * row_h + 138)
     image, draw = canvas(1200, height)
     _soft_backdrop(draw, 1200, height)
 
@@ -176,20 +217,20 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
         text(draw, (x + 38, 263), label, 9, COLORS["muted"], True, "ma")
 
     table_y = 326
-    rounded(draw, (32, table_y, 1168, height - 50), 14, "#090B0D", "#22272E")
+    rounded(draw, (32, table_y, 1168, height - 118), 14, "#090B0D", "#22272E")
     rounded(draw, (32, table_y, 1168, table_y + 54), 14, "#11151A", "#22272E")
     headers = [
-        ("RANK", 54),
-        ("CREATOR", 154),
-        ("DIAMONDS", 410),
-        ("HOURS", 532),
-        ("DAYS", 624),
-        ("FOLLOWERS", 696),
-        ("LEAGUE", 812),
-        ("INCENTIVE", 958),
+        ("RANK", COLUMNS["rank"]),
+        ("CREATOR", COLUMNS["creator"]),
+        ("DIAMONDS", COLUMNS["diamonds"]),
+        ("HOURS", COLUMNS["hours"]),
+        ("DAYS", COLUMNS["days"]),
+        ("FOLLOWERS", COLUMNS["followers"]),
+        ("LEAGUE", COLUMNS["league"]),
+        ("INCENTIVE", COLUMNS["incentive"]),
     ]
     for header, x in headers:
-        text(draw, (x, table_y + 21), header, 12, COLORS["muted"], True)
+        text(draw, (x, table_y + 21), header, 12, COLORS["muted"], True, "ma")
     line(draw, (32, table_y + 54, 1168, table_y + 54), "#20252B", 1)
 
     y = table_y + 60
@@ -202,32 +243,33 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
 
         row_mid = y + row_h // 2
         rank_color = COLORS["gold"] if creator.rank == 1 else COLORS["subtext"] if creator.rank <= 3 else COLORS["muted"]
-        _row_text(draw, 54, row_mid, f"#{creator.rank}", 20, rank_color, True, "lm")
+        _row_text(draw, COLUMNS["rank"], row_mid, f"#{creator.rank}", 20, rank_color, True, "mm")
         circular_avatar(
             image,
             draw,
-            98,
+            COLUMNS["avatar"] - 24,
             row_mid - 24,
             48,
             creator.creator_name,
             creator.rank,
             creator.avatar_path,
-            _rank_avatar_color(creator.rank),
-            str(creator.rank),
+            _tier_avatar_color(creator.tier),
+            str(creator.tier),
         )
         _row_text(draw, 166, row_mid, _ellipsize(creator.creator_name, 18), 22, COLORS["text"], True, "lm")
-        _row_text(draw, 490, row_mid, format_int(creator.diamonds), 21, COLORS["text"], True, "rm")
-        _row_text(draw, 572, row_mid, format_hours(creator.hours), 19, COLORS["subtext"], False, "mm")
-        _row_text(draw, 644, row_mid, str(creator.days), 19, COLORS["subtext"], False, "mm")
-        _row_text(draw, 782, row_mid, format_int(creator.new_followers), 19, COLORS["subtext"], False, "rm")
-        _league_pill(draw, 812, row_mid - 16, creator.tier)
-        _status_pill(draw, 958, row_mid - 16, creator.incentive_status)
+        _row_text(draw, COLUMNS["diamonds"], row_mid, format_int(creator.diamonds), 21, COLORS["text"], True, "mm")
+        _row_text(draw, COLUMNS["hours"], row_mid, format_hours(creator.hours), 19, COLORS["subtext"], False, "mm")
+        _row_text(draw, COLUMNS["days"], row_mid, str(creator.days), 19, COLORS["subtext"], False, "mm")
+        _row_text(draw, COLUMNS["followers"], row_mid, format_int(creator.new_followers), 19, COLORS["subtext"], False, "mm")
+        _centered_league_pill(draw, COLUMNS["league"], row_mid - 16, creator.tier)
+        _centered_status_pill(draw, COLUMNS["incentive"], row_mid - 16, creator.incentive_status)
         line(draw, (48, y + row_h, 1152, y + row_h), "#14191E", 1)
         y += row_h
 
     hidden = max(0, len(creators) - len(visible))
     if hidden:
-        text(draw, (600, height - 58), f"+ {hidden} additional creators not shown", 13, COLORS["muted"], False, "ma")
+        text(draw, (600, height - 108), f"+ {hidden} additional creators not shown", 13, COLORS["muted"], False, "ma")
+    _tier_border_legend(draw, height - 76)
     text(draw, (36, height - 28), "Achieved = banked incentive  |  In Progress = on track  |  Not Achievable = cannot reach target", 13, COLORS["muted"])
 
     final = downsample(image)

@@ -325,6 +325,7 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
     creators: list[dict] = []
     for index, row in grouped.iterrows():
         diamonds = int(round(row["diamonds"]))
+        previous_month_diamonds = int(round(row["previous_month_diamonds"]))
         days = int(round(row["days"]))
         hours = round(float(row["hours"]), 2)
         battles = int(round(row["battles"]))
@@ -345,7 +346,7 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
                 "days": days,
                 "battles": battles,
                 "new_followers": new_followers,
-                "tier": get_tier(diamonds),
+                "tier": get_tier(previous_month_diamonds),
                 "rank": index + 1,
                 "incentive_status": incentive_status(diamonds, days, hours, report_date),
                 "avatar_url": avatar_url,

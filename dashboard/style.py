@@ -176,7 +176,7 @@ def incentive_label(status: str) -> tuple[str, str]:
 
 def incentive_label(status: str) -> tuple[str, str]:
     if status == "ACHIEVED":
-        return f"Achieved GBP {INCENTIVE_REWARD}", COLORS["green"]
+        return f"Achieved \u00a3{INCENTIVE_REWARD}", COLORS["green"]
     if status == "NOT_ACHIEVABLE":
         return "Not Achievable", COLORS["red"]
     return "In Progress", COLORS["yellow"]

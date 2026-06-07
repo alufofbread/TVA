@@ -21,7 +21,7 @@ from dashboard.style import (
     rounded,
     text,
 )
-from importer import get_active_incentive_tier, get_tier
+from importer import get_active_incentive_tier, get_next_tier, get_tier
 
 
 ACTIVENESS_LEVELS = [
@@ -81,30 +81,24 @@ def _activeness_panel(draw: ImageDraw.ImageDraw, creator: Creator) -> None:
         text(draw, (194, 628), f"Next: {days} valid days, {hours}h live, {format_int(diamonds)} diamonds", 14, COLORS["subtext"])
 
 
-def _next_league_progress(diamonds: int) -> tuple[str, str, int | None, float]:
+def _tier_label(tier: int) -> str:
+    return f"Tier {tier} {league_name(tier)}"
+
+
+def _next_tier_progress(diamonds: int) -> tuple[str, str, int | None, float]:
     current_tier = get_tier(diamonds)
-    current_league = league_name(current_tier)
-    current_floor = min(
-        threshold
-        for tier, threshold in TIER_THRESHOLDS.items()
-        if league_name(tier) == current_league
-    )
-    next_options = [
-        (tier, threshold)
-        for tier, threshold in sorted(TIER_THRESHOLDS.items())
-        if threshold > diamonds and league_name(tier) != current_league
-    ]
-    if not next_options:
-        return current_league, "Max League", None, 100.0
-    next_tier, next_threshold = next_options[0]
+    next_tier, next_threshold = get_next_tier(diamonds)
+    current_floor = TIER_THRESHOLDS[current_tier]
+    if next_tier is None or next_threshold is None:
+        return _tier_label(current_tier), "Max Tier", None, 100.0
     span = max(1, next_threshold - current_floor)
     pct = max(0.0, min(100.0, (diamonds - current_floor) / span * 100))
-    return current_league, league_name(next_tier), next_threshold, pct
+    return _tier_label(current_tier), _tier_label(next_tier), next_threshold, pct
 
 
 def render_creator_stats(creator: Creator, total_creators: int, output_path: Path) -> Path:
     image, draw = canvas(1100, 720)
-    current_league, next_label, next_threshold, pct = _next_league_progress(creator.diamonds)
+    current_tier_label, next_label, next_threshold, pct = _next_tier_progress(creator.diamonds)
 
     rounded(draw, (24, 22, 1070, 136), 12, COLORS["panel_alt"], COLORS["border"])
     text(draw, (36, 30), "TEAM VEXTAL", 13, COLORS["muted"], True)
@@ -132,9 +126,9 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     _metric(draw, 751, 184, 205, "New Followers", format_int(creator.new_followers), COLORS["purple"])
 
     rounded(draw, (36, 328, 650, 522), 10, COLORS["panel"], COLORS["border"])
-    text(draw, (62, 358), "NEXT LEAGUE PROGRESS", 13, COLORS["muted"], True)
+    text(draw, (62, 358), "NEXT TIER PROGRESS", 13, COLORS["muted"], True)
     next_value = f"{format_int(next_threshold)} diamonds" if next_threshold else f"{format_int(creator.diamonds)} diamonds"
-    text(draw, (62, 396), current_league, 32, COLORS["text"], True)
+    text(draw, (62, 396), current_tier_label, 32, COLORS["text"], True)
     text(draw, (588, 392), next_label, 19, COLORS["subtext"], True, "ra")
     text(draw, (588, 418), next_value, 14, COLORS["muted"], False, "ra")
     rounded(draw, (62, 452, 588, 474), 11, "#20242A")
@@ -145,11 +139,11 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
         label_x = 62 + min(fill_w // 2, fill_w - 26)
         text(draw, (label_x + 1, 454), pct_label, 15, "#6A4A00", True, "ma")
         text(draw, (label_x, 453), pct_label, 15, "#FFFFFF", True, "ma")
-    text(draw, (62, 492), f"Unlocks the {next_label} league when the diamond goal lands.", 12, COLORS["subtext"])
+    text(draw, (62, 492), f"Unlocks {next_label} when the diamond goal lands.", 12, COLORS["subtext"])
 
     rounded(draw, (680, 328, 1038, 522), 10, COLORS["panel"], COLORS["border"])
     incentive = get_active_incentive_tier(creator.diamonds, creator.days, creator.hours)
-    text(draw, (706, 354), f"{league_name(int(incentive['tier'])).upper()} INCENTIVE", 13, COLORS["muted"], True)
+    text(draw, (706, 354), "INCENTIVE PROGRESS", 13, COLORS["muted"], True)
     _status_badge(draw, 874, 344, creator.incentive_status)
     _progress(draw, 706, 384, 292, "Diamonds", creator.diamonds, incentive["diamonds"], lambda v: format_int(v), COLORS["gold"])
     _progress(draw, 706, 432, 292, "Days", creator.days, incentive["days"], lambda v: str(int(v)), COLORS["green"])

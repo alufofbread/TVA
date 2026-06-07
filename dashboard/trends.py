@@ -236,7 +236,7 @@ def render_creator_trends(creator: Creator, output_path: Path) -> Path:
     text(draw, (42, 42), "TEAM VEXTAL", 13, COLORS["muted"], True)
     circular_avatar(image, draw, 42, 64, 62, creator.creator_name, creator.rank, creator.avatar_path)
     text(draw, (124, 87), creator.creator_name, 34, COLORS["text"], True, "lm")
-    text(draw, (124, 116), "Daily month-to-date trends", 15, COLORS["subtext"], False, "lm")
+    text(draw, (124, 116), "Month-to-date trends", 15, COLORS["subtext"], False, "lm")
 
     _chart_card(
         draw,
@@ -244,7 +244,7 @@ def render_creator_trends(creator: Creator, output_path: Path) -> Path:
         168,
         688,
         280,
-        "Diamonds Trend",
+        "Daily Diamonds Trend",
         points,
         "diamonds",
         COLORS["gold"],
@@ -257,7 +257,7 @@ def render_creator_trends(creator: Creator, output_path: Path) -> Path:
         474,
         688,
         280,
-        "Live Hours",
+        "Daily Live Hours",
         points,
         "hours",
         COLORS["green"],
@@ -270,7 +270,7 @@ def render_creator_trends(creator: Creator, output_path: Path) -> Path:
         780,
         688,
         280,
-        "New Followers",
+        "Daily New Followers",
         points,
         "new_followers",
         COLORS["purple"],
