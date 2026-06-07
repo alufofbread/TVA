@@ -91,15 +91,23 @@ class Database:
         rows = list(creators)
         now = datetime.now(timezone.utc).isoformat()
         with self.connect() as conn:
-            existing_avatars = {
-                row["creator_id"]: {"avatar_url": row["avatar_url"], "avatar_path": row["avatar_path"]}
-                for row in conn.execute("SELECT creator_id, avatar_url, avatar_path FROM creators").fetchall()
-            }
+            existing_rows = conn.execute(
+                "SELECT creator_id, creator_name, avatar_url, avatar_path, tier FROM creators"
+            ).fetchall()
+            existing_by_id = {row["creator_id"]: row for row in existing_rows}
+            existing_by_name = {row["creator_name"].strip().lower(): row for row in existing_rows}
+
             for row in rows:
-                existing = existing_avatars.get(row["creator_id"])
+                existing = existing_by_id.get(row["creator_id"]) or existing_by_name.get(
+                    str(row["creator_name"]).strip().lower()
+                )
                 if existing and not row.get("avatar_path"):
                     row["avatar_url"] = existing["avatar_url"]
                     row["avatar_path"] = existing["avatar_path"]
+                if existing and row.pop("preserve_existing_tier", False):
+                    row["tier"] = existing["tier"]
+                else:
+                    row.pop("preserve_existing_tier", None)
 
             conn.execute("DELETE FROM creators")
             conn.executemany(

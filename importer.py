@@ -293,7 +293,8 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
         df["avatar_url"] = ""
     if "new_followers" not in df.columns:
         df["new_followers"] = 0
-    if "previous_month_diamonds" not in df.columns:
+    has_previous_month_diamonds = "previous_month_diamonds" in df.columns
+    if not has_previous_month_diamonds:
         df["previous_month_diamonds"] = df["diamonds"]
 
     for metric in ("new_followers", "previous_month_diamonds"):
@@ -347,6 +348,7 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
                 "battles": battles,
                 "new_followers": new_followers,
                 "tier": get_tier(previous_month_diamonds),
+                "preserve_existing_tier": not has_previous_month_diamonds,
                 "rank": index + 1,
                 "incentive_status": incentive_status(diamonds, days, hours, report_date),
                 "avatar_url": avatar_url,
