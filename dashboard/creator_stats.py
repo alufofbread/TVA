@@ -150,10 +150,10 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     line(draw, (0, 145, 1100, 145), COLORS["border"], 1)
 
     text(draw, (36, 166), "MONTHLY TOTALS", 12, COLORS["muted"], True)
-    _metric(draw, 36, 184, 235, "Total Diamonds", format_int(creator.diamonds), COLORS["gold"])
-    _metric(draw, 291, 184, 215, "Total Hours", format_hours(creator.hours), COLORS["blue"])
-    _metric(draw, 526, 184, 205, "Valid Days", str(creator.days), COLORS["green"])
-    _metric(draw, 751, 184, 205, "New Followers", format_int(creator.new_followers), COLORS["purple"])
+    _metric(draw, 36, 184, 247, "Total Diamonds", format_int(creator.diamonds), COLORS["gold"])
+    _metric(draw, 299, 184, 247, "Total Hours", format_hours(creator.hours), COLORS["blue"])
+    _metric(draw, 562, 184, 247, "Valid Days", str(creator.days), COLORS["green"])
+    _metric(draw, 825, 184, 213, "New Followers", format_int(creator.new_followers), COLORS["purple"])
 
     rounded(draw, (36, 328, 650, 522), 10, COLORS["panel"], COLORS["border"])
     text(draw, (62, 358), "NEXT TIER PROGRESS", 13, COLORS["muted"], True)
