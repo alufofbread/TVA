@@ -83,31 +83,31 @@ def _activeness_panel(draw: ImageDraw.ImageDraw, creator: Creator) -> None:
         text(draw, (194, 632), f"Next: {days} valid days, {hours}h live, {format_int(diamonds)} diamonds", 14, COLORS["subtext"])
 
 
-def _best_day(points: list[TrendPoint]) -> TrendPoint | None:
+def _best_day(points: list[TrendPoint], metric: str) -> TrendPoint | None:
     if not points:
         return None
-    return max(points, key=lambda point: (point.diamonds, point.new_followers, point.hours))
+    return max(points, key=lambda point: (getattr(point, metric), point.diamonds, point.new_followers, point.hours))
 
 
 def _best_day_panel(draw: ImageDraw.ImageDraw, points: list[TrendPoint]) -> None:
     rounded(draw, (680, 552, 1038, 680), 10, COLORS["panel"], COLORS["border"])
     text(draw, (706, 576), "BEST DAY THIS MONTH", 13, COLORS["muted"], True)
 
-    best = _best_day(points)
-    if best is None:
+    best_diamonds = _best_day(points, "diamonds")
+    best_followers = _best_day(points, "new_followers")
+    if best_diamonds is None or best_followers is None:
         text(draw, (706, 620), "No daily history yet", 18, COLORS["text"], True, "lm")
         text(draw, (706, 644), "Import daily sheets to build this.", 13, COLORS["subtext"])
         return
 
-    day_label = best.report_date.strftime("%d %b").lstrip("0")
-    text(draw, (1000, 576), day_label.upper(), 13, COLORS["gold"], True, "ra")
-
     rounded(draw, (706, 606, 846, 654), 9, "#11151A", "#252A30")
     rounded(draw, (872, 606, 1012, 654), 9, "#11151A", "#252A30")
-    text(draw, (726, 622), format_int(best.diamonds), 22, COLORS["text"], True, "lm")
-    text(draw, (892, 622), format_int(best.new_followers), 22, COLORS["text"], True, "lm")
-    text(draw, (726, 642), "DIAMONDS", 10, COLORS["gold"], True, "lm")
-    text(draw, (892, 642), "FOLLOWERS", 10, COLORS["purple"], True, "lm")
+    text(draw, (726, 616), format_int(best_diamonds.diamonds), 21, COLORS["text"], True, "lm")
+    text(draw, (892, 616), format_int(best_followers.new_followers), 21, COLORS["text"], True, "lm")
+    text(draw, (726, 637), best_diamonds.report_date.strftime("%d %b").lstrip("0").upper(), 9, COLORS["muted"], True, "lm")
+    text(draw, (892, 637), best_followers.report_date.strftime("%d %b").lstrip("0").upper(), 9, COLORS["muted"], True, "lm")
+    text(draw, (804, 637), "DIAMONDS", 9, COLORS["gold"], True, "rm")
+    text(draw, (978, 637), "FOLLOWERS", 9, COLORS["purple"], True, "rm")
 
 
 def _tier_label(tier: int) -> str:
