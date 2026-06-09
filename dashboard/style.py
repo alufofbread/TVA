@@ -175,7 +175,7 @@ def incentive_label(status: str, tier: int = 1) -> tuple[str, str]:
         return f"{prefix} Achieved", COLORS["green"]
     if status == "NOT_ACHIEVABLE":
         return f"{prefix} Missed", COLORS["red"]
-    return f"{prefix} Progress", COLORS["yellow"]
+    return f"{prefix} In Progress", COLORS["yellow"]
 
 
 def resolve_image_path(value: str) -> Path | None:
