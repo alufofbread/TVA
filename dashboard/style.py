@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from config import BASE_DIR, INCENTIVE_REWARD
+from config import BASE_DIR
 
 ROOT = Path(__file__).resolve().parent
 
@@ -28,7 +28,7 @@ LEAGUE_COLORS = {
     4: "#2563EB",
     5: "#FACC15",
     6: "#F59E0B",
-    7: "#EA580C",
+    7: "#A78BFA",
     8: "#A78BFA",
     9: "#8B5CF6",
     10: "#6D28D9",
@@ -137,6 +137,17 @@ def text_width(value: str, size: int, bold: bool = False) -> int:
     return (bbox[2] - bbox[0]) // 2
 
 
+def fit_text(value: str, max_width: int, size: int, bold: bool = False) -> str:
+    if text_width(value, size, bold) <= max_width:
+        return value
+    ellipsis = "..."
+    available = max(0, max_width - text_width(ellipsis, size, bold))
+    trimmed = value
+    while trimmed and text_width(trimmed, size, bold) > available:
+        trimmed = trimmed[:-1]
+    return trimmed.rstrip() + ellipsis
+
+
 def league_name(tier: int) -> str:
     return LEAGUE_NAMES.get(tier, LEAGUE_NAMES[10])
 
@@ -158,28 +169,13 @@ def format_hours(value: float) -> str:
     return f"{hours}h {minutes}m"
 
 
-def _legacy_incentive_label(status: str) -> tuple[str, str]:
+def incentive_label(status: str, tier: int = 1) -> tuple[str, str]:
+    prefix = f"T{tier}"
     if status == "ACHIEVED":
-        return "Achieved £80", COLORS["green"]
+        return f"{prefix} Achieved", COLORS["green"]
     if status == "NOT_ACHIEVABLE":
-        return "Not Achievable", COLORS["red"]
-    return "In Progress", COLORS["yellow"]
-
-
-def incentive_label(status: str) -> tuple[str, str]:
-    if status == "ACHIEVED":
-        return f"Achieved £{INCENTIVE_REWARD}", COLORS["green"]
-    if status == "NOT_ACHIEVABLE":
-        return "Not Achievable", COLORS["red"]
-    return "In Progress", COLORS["yellow"]
-
-
-def incentive_label(status: str) -> tuple[str, str]:
-    if status == "ACHIEVED":
-        return f"Achieved \u00a3{INCENTIVE_REWARD}", COLORS["green"]
-    if status == "NOT_ACHIEVABLE":
-        return "Not Achievable", COLORS["red"]
-    return "In Progress", COLORS["yellow"]
+        return f"{prefix} Missed", COLORS["red"]
+    return f"{prefix} Progress", COLORS["yellow"]
 
 
 def resolve_image_path(value: str) -> Path | None:

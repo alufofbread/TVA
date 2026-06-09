@@ -8,7 +8,7 @@ from PIL import ImageDraw
 
 from config import UPLOAD_DIR
 from database import Creator
-from dashboard.style import COLORS, canvas, circular_avatar, downsample, format_hours, format_int, line, rounded, text
+from dashboard.style import COLORS, canvas, circular_avatar, downsample, fit_text, format_hours, format_int, line, rounded, text
 from importer import _detect_columns, _read_excel, load_creators_from_spreadsheet, parse_period_end, parse_report_date_from_filename
 
 
@@ -225,7 +225,8 @@ def _chart_card(
         text(draw, (px, plot_y + plot_h + 18), label, 11, COLORS["muted"], False, anchor)
 
     latest = formatter(values[-1])
-    text(draw, (x + w - 28, y + 24), latest, 14, accent, True, "ra")
+    text(draw, (x + w - 28, y + 20), latest, 14, accent, True, "ra")
+    text(draw, (x + w - 28, y + 40), "PREV DAY", 9, COLORS["muted"], True, "ra")
 
 
 def render_creator_trends(creator: Creator, output_path: Path) -> Path:
@@ -235,7 +236,7 @@ def render_creator_trends(creator: Creator, output_path: Path) -> Path:
     rounded(draw, (24, 22, 736, 138), 12, COLORS["panel_alt"], COLORS["border"])
     text(draw, (42, 42), "TEAM VEXTAL", 13, COLORS["muted"], True)
     circular_avatar(image, draw, 42, 64, 62, creator.creator_name, creator.rank, creator.avatar_path)
-    text(draw, (124, 87), creator.creator_name, 34, COLORS["text"], True, "lm")
+    text(draw, (124, 87), fit_text(creator.creator_name, 570, 34, True), 34, COLORS["text"], True, "lm")
     text(draw, (124, 116), "Month-to-date trends", 15, COLORS["subtext"], False, "lm")
 
     _chart_card(

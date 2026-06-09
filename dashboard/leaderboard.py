@@ -42,8 +42,8 @@ ROW_TEXT_Y_OFFSET = -2
 
 COLUMNS = {
     "rank": 68,
-    "avatar": 118,
-    "creator": 274,
+    "avatar": 126,
+    "creator": 264,
     "diamonds": 450,
     "hours": 566,
     "days": 646,
@@ -159,7 +159,7 @@ def _row_text(
 
 
 def _tier_border_legend(draw: ImageDraw.ImageDraw, y: int) -> None:
-    text(draw, (36, y + 9), "TIER BORDERS", 11, COLORS["muted"], True, "lm")
+    text(draw, (36, y + 15), "TIER BORDERS", 11, COLORS["muted"], True, "lm")
     items = [
         ("Rookie", 1),
         ("Pro", 3),
@@ -171,7 +171,7 @@ def _tier_border_legend(draw: ImageDraw.ImageDraw, y: int) -> None:
         color = league_color(tier)
         rounded(draw, (x, y, x + 138, y + 30), 15, "#090B0D", "#22272E")
         draw.ellipse(((x + 12) * 2, (y + 7) * 2, (x + 28) * 2, (y + 23) * 2), fill="#11151A", outline=color, width=3)
-        text(draw, (x + 80, y + 8), label, 12, color, True, "ma")
+        text(draw, (x + 80, y + 15), label, 12, color, True, "mm")
 
 
 def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_path: Path) -> Path:
@@ -208,7 +208,7 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
         ("Rookie", tier_counts[1] + tier_counts[2], league_color(1)),
         ("Pro", tier_counts[3] + tier_counts[4], league_color(3)),
         ("All Star", tier_counts[5] + tier_counts[6], league_color(5)),
-        ("Elite", sum(tier_counts[tier] for tier in range(7, 11)), league_color(7)),
+        ("Elite", sum(tier_counts[tier] for tier in range(7, 11)), league_color(8)),
     ]
     for i, (label, count, accent) in enumerate(tier_cards):
         x = 762 + i * 92
@@ -256,7 +256,7 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
             _tier_avatar_color(creator.tier),
             str(creator.tier),
         )
-        _row_text(draw, 166, row_mid, _ellipsize(creator.creator_name, 18), 22, COLORS["text"], True, "lm")
+        _row_text(draw, 158, row_mid, _ellipsize(creator.creator_name, 15), 19, COLORS["text"], True, "lm")
         _row_text(draw, COLUMNS["diamonds"], row_mid, format_int(creator.diamonds), 21, COLORS["text"], True, "mm")
         _row_text(draw, COLUMNS["hours"], row_mid, format_hours(creator.hours), 19, COLORS["subtext"], False, "mm")
         _row_text(draw, COLUMNS["days"], row_mid, str(creator.days), 19, COLORS["subtext"], False, "mm")
@@ -270,7 +270,7 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
     if hidden:
         text(draw, (600, height - 108), f"+ {hidden} additional creators not shown", 13, COLORS["muted"], False, "ma")
     _tier_border_legend(draw, height - 76)
-    text(draw, (36, height - 28), "Achieved = banked incentive  |  In Progress = on track  |  Not Achievable = cannot reach target", 13, COLORS["muted"])
+    text(draw, (36, height - 28), "T1 Achieved = banked incentive  |  T1 Progress = on track  |  T1 Missed = cannot reach target", 13, COLORS["muted"])
 
     final = downsample(image)
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -12,6 +12,7 @@ from dashboard.style import (
     circular_avatar,
     downsample,
     draw_fasttrack_logo,
+    fit_text,
     format_hours,
     format_int,
     incentive_label,
@@ -41,8 +42,8 @@ def _metric(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, label: str, value
     line(draw, (x + 22, y + 92, x + w - 22, y + 92), accent, 2)
 
 
-def _status_badge(draw: ImageDraw.ImageDraw, x: int, y: int, status: str) -> None:
-    label, color = incentive_label(status)
+def _status_badge(draw: ImageDraw.ImageDraw, x: int, y: int, status: str, tier: int = 1) -> None:
+    label, color = incentive_label(status, tier)
     fill = "#082616" if status == "ACHIEVED" else "#2B0D13" if status == "NOT_ACHIEVABLE" else "#2A2108"
     rounded(draw, (x, y, x + 142, y + 30), 15, fill, color)
     text(draw, (x + 71, y + 7), label, 12, color, True, "ma")
@@ -66,23 +67,23 @@ def _activeness_level(creator: Creator) -> int:
 
 
 def _activeness_panel(draw: ImageDraw.ImageDraw, creator: Creator) -> None:
-    rounded(draw, (36, 542, 1038, 680), 10, COLORS["panel"], COLORS["border"])
+    rounded(draw, (36, 552, 650, 680), 10, COLORS["panel"], COLORS["border"])
     current_level = _activeness_level(creator)
     next_targets = ACTIVENESS_LEVELS[min(current_level + 1, len(ACTIVENESS_LEVELS) - 1)]
 
-    text(draw, (62, 568), "ACTIVENESS LEVEL", 13, COLORS["muted"], True)
-    rounded(draw, (62, 592, 170, 654), 12, "#082616", COLORS["green"])
-    text(draw, (116, 623), f"L{current_level}", 30, COLORS["green"], True, "mm")
-    text(draw, (194, 601), "Current creator activity score", 18, COLORS["text"], True)
+    text(draw, (62, 576), "ACTIVENESS LEVEL", 13, COLORS["muted"], True)
+    rounded(draw, (62, 600, 170, 654), 12, "#082616", COLORS["green"])
+    text(draw, (116, 627), f"L{current_level}", 29, COLORS["green"], True, "mm")
+    text(draw, (194, 606), "Current creator activity score", 17, COLORS["text"], True)
     if current_level >= ACTIVENESS_LEVELS[-1][0]:
-        text(draw, (194, 628), "Max level reached for the month.", 14, COLORS["subtext"])
+        text(draw, (194, 632), "Max level reached for the month.", 14, COLORS["subtext"])
     else:
         _, days, hours, diamonds = next_targets
-        text(draw, (194, 628), f"Next: {days} valid days, {hours}h live, {format_int(diamonds)} diamonds", 14, COLORS["subtext"])
+        text(draw, (194, 632), f"Next: {days} valid days, {hours}h live, {format_int(diamonds)} diamonds", 14, COLORS["subtext"])
 
 
 def _tier_label(tier: int) -> str:
-    return f"Tier {tier} {league_name(tier)}"
+    return f"Tier {tier}"
 
 
 def _next_tier_progress(diamonds: int) -> tuple[str, str, int | None, float]:
@@ -114,7 +115,7 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
         league_color(creator.tier),
         str(creator.tier),
     )
-    text(draw, (128, 86), creator.creator_name, 42, COLORS["text"], True, "lm")
+    text(draw, (128, 86), fit_text(creator.creator_name, 760, 42, True), 42, COLORS["text"], True, "lm")
     text(draw, (128, 121), f"{league_name(creator.tier)} league creator  |  Rank #{creator.rank} of {total_creators}", 18, COLORS["subtext"], False, "lm")
     draw_fasttrack_logo(image, draw, 944, 32, 94, 94, framed=False)
     line(draw, (0, 145, 1100, 145), COLORS["border"], 1)
@@ -139,15 +140,19 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
         label_x = 62 + min(fill_w // 2, fill_w - 26)
         text(draw, (label_x + 1, 454), pct_label, 15, "#6A4A00", True, "ma")
         text(draw, (label_x, 453), pct_label, 15, "#FFFFFF", True, "ma")
-    text(draw, (62, 492), f"Unlocks {next_label} when the diamond goal lands.", 12, COLORS["subtext"])
+    reward_tier = get_tier(creator.diamonds) if next_threshold is None else int(next_label.replace("Tier ", ""))
+    reward_color = league_color(reward_tier)
+    draw.ellipse((62 * 2, 492 * 2, 76 * 2, 506 * 2), fill="#11151A", outline=reward_color, width=3)
+    text(draw, (86, 493), f"Reward: {league_name(reward_tier)} league + {league_name(reward_tier)} border", 12, COLORS["subtext"])
 
     rounded(draw, (680, 328, 1038, 522), 10, COLORS["panel"], COLORS["border"])
     incentive = get_active_incentive_tier(creator.diamonds, creator.days, creator.hours)
-    text(draw, (706, 354), "INCENTIVE PROGRESS", 13, COLORS["muted"], True)
-    _status_badge(draw, 874, 344, creator.incentive_status)
-    _progress(draw, 706, 384, 292, "Diamonds", creator.diamonds, incentive["diamonds"], lambda v: format_int(v), COLORS["gold"])
-    _progress(draw, 706, 432, 292, "Days", creator.days, incentive["days"], lambda v: str(int(v)), COLORS["green"])
-    _progress(draw, 706, 480, 292, "Hours", creator.hours, incentive["hours"], lambda v: f"{int(round(v))}h", COLORS["blue"])
+    incentive_tier = int(incentive.get("tier", 1))
+    text(draw, (706, 346), "INCENTIVE PROGRESS", 13, COLORS["muted"], True)
+    _status_badge(draw, 874, 336, creator.incentive_status, incentive_tier)
+    _progress(draw, 706, 376, 292, "Diamonds", creator.diamonds, incentive["diamonds"], lambda v: format_int(v), COLORS["gold"])
+    _progress(draw, 706, 421, 292, "Days", creator.days, incentive["days"], lambda v: str(int(v)), COLORS["green"])
+    _progress(draw, 706, 466, 292, "Hours", creator.hours, incentive["hours"], lambda v: f"{int(round(v))}h", COLORS["blue"])
 
     _activeness_panel(draw, creator)
 
