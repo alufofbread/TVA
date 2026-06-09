@@ -46,8 +46,8 @@ def _metric(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, label: str, value
 def _status_badge(draw: ImageDraw.ImageDraw, x: int, y: int, status: str, tier: int = 1) -> None:
     label, color = incentive_label(status, tier)
     fill = "#082616" if status == "ACHIEVED" else "#2B0D13" if status == "NOT_ACHIEVABLE" else "#2A2108"
-    rounded(draw, (x, y, x + 142, y + 30), 15, fill, color)
-    text(draw, (x + 71, y + 7), label, 12, color, True, "ma")
+    rounded(draw, (x, y, x + 126, y + 26), 13, fill, color)
+    text(draw, (x + 63, y + 6), label, 11, color, True, "ma")
 
 
 def _progress(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, label: str, current: float, target: float, formatter, color: str) -> None:
@@ -178,7 +178,7 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     incentive = get_active_incentive_tier(creator.diamonds, creator.days, creator.hours)
     incentive_tier = int(incentive.get("tier", 1))
     text(draw, (706, 346), "INCENTIVE PROGRESS", 13, COLORS["muted"], True)
-    _status_badge(draw, 874, 336, creator.incentive_status, incentive_tier)
+    _status_badge(draw, 890, 338, creator.incentive_status, incentive_tier)
     _progress(draw, 706, 376, 292, "Diamonds", creator.diamonds, incentive["diamonds"], lambda v: format_int(v), COLORS["gold"])
     _progress(draw, 706, 421, 292, "Days", creator.days, incentive["days"], lambda v: str(int(v)), COLORS["green"])
     _progress(draw, 706, 466, 292, "Hours", creator.hours, incentive["hours"], lambda v: f"{int(round(v))}h", COLORS["blue"])
