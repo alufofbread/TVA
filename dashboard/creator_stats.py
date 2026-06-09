@@ -68,19 +68,19 @@ def _activeness_level(creator: Creator) -> int:
 
 
 def _activeness_panel(draw: ImageDraw.ImageDraw, creator: Creator) -> None:
-    rounded(draw, (36, 552, 650, 680), 10, COLORS["panel"], COLORS["border"])
+    rounded(draw, (36, 552, 460, 680), 10, COLORS["panel"], COLORS["border"])
     current_level = _activeness_level(creator)
     next_targets = ACTIVENESS_LEVELS[min(current_level + 1, len(ACTIVENESS_LEVELS) - 1)]
 
     text(draw, (62, 576), "ACTIVENESS LEVEL", 13, COLORS["muted"], True)
     rounded(draw, (62, 600, 170, 654), 12, "#082616", COLORS["green"])
     text(draw, (116, 627), f"L{current_level}", 29, COLORS["green"], True, "mm")
-    text(draw, (194, 606), "Current creator activity score", 17, COLORS["text"], True)
+    text(draw, (194, 606), "Creator activity score", 16, COLORS["text"], True)
     if current_level >= ACTIVENESS_LEVELS[-1][0]:
         text(draw, (194, 632), "Max level reached for the month.", 14, COLORS["subtext"])
     else:
         _, days, hours, diamonds = next_targets
-        text(draw, (194, 632), f"Next: {days} valid days, {hours}h live, {format_int(diamonds)} diamonds", 14, COLORS["subtext"])
+        text(draw, (194, 632), f"Next: {days} days, {hours}h, {format_int(diamonds)} diamonds", 13, COLORS["subtext"])
 
 
 def _best_day(points: list[TrendPoint], metric: str) -> TrendPoint | None:
@@ -89,25 +89,48 @@ def _best_day(points: list[TrendPoint], metric: str) -> TrendPoint | None:
     return max(points, key=lambda point: (getattr(point, metric), point.diamonds, point.new_followers, point.hours))
 
 
-def _best_day_panel(draw: ImageDraw.ImageDraw, points: list[TrendPoint]) -> None:
-    rounded(draw, (680, 552, 1038, 680), 10, COLORS["panel"], COLORS["border"])
-    text(draw, (706, 576), "BEST DAY THIS MONTH", 13, COLORS["muted"], True)
+def _best_day_metric_panel(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    point: TrendPoint | None,
+    metric: str,
+    label: str,
+    color: str,
+) -> None:
+    x1, y1, x2, y2 = box
+    rounded(draw, box, 10, COLORS["panel"], COLORS["border"])
+    text(draw, (x1 + 24, y1 + 24), "BEST DAY", 13, COLORS["muted"], True)
 
-    best_diamonds = _best_day(points, "diamonds")
-    best_followers = _best_day(points, "new_followers")
-    if best_diamonds is None or best_followers is None:
-        text(draw, (706, 620), "No daily history yet", 18, COLORS["text"], True, "lm")
-        text(draw, (706, 644), "Import daily sheets to build this.", 13, COLORS["subtext"])
+    if point is None:
+        text(draw, (x1 + 24, y1 + 68), "No data", 20, COLORS["text"], True, "lm")
+        text(draw, (x1 + 24, y1 + 92), label.upper(), 10, color, True, "lm")
         return
 
-    rounded(draw, (706, 606, 846, 654), 9, "#11151A", "#252A30")
-    rounded(draw, (872, 606, 1012, 654), 9, "#11151A", "#252A30")
-    text(draw, (726, 616), format_int(best_diamonds.diamonds), 21, COLORS["text"], True, "lm")
-    text(draw, (892, 616), format_int(best_followers.new_followers), 21, COLORS["text"], True, "lm")
-    text(draw, (726, 637), best_diamonds.report_date.strftime("%d %b").lstrip("0").upper(), 9, COLORS["muted"], True, "lm")
-    text(draw, (892, 637), best_followers.report_date.strftime("%d %b").lstrip("0").upper(), 9, COLORS["muted"], True, "lm")
-    text(draw, (804, 637), "DIAMONDS", 9, COLORS["gold"], True, "rm")
-    text(draw, (978, 637), "FOLLOWERS", 9, COLORS["purple"], True, "rm")
+    date_label = point.report_date.strftime("%d %b").lstrip("0").upper()
+    value = format_int(getattr(point, metric))
+    value_x = x1 + 66
+    text(draw, (x2 - 24, y1 + 24), date_label, 13, color, True, "ra")
+    text(draw, (value_x, y1 + 70), value, 28, COLORS["text"], True, "lm")
+    text(draw, (value_x, y1 + 98), label.upper(), 11, color, True, "lm")
+
+
+def _best_day_panels(draw: ImageDraw.ImageDraw, points: list[TrendPoint]) -> None:
+    _best_day_metric_panel(
+        draw,
+        (490, 552, 750, 680),
+        _best_day(points, "diamonds"),
+        "diamonds",
+        "Diamonds",
+        COLORS["gold"],
+    )
+    _best_day_metric_panel(
+        draw,
+        (780, 552, 1038, 680),
+        _best_day(points, "new_followers"),
+        "new_followers",
+        "Followers",
+        COLORS["purple"],
+    )
 
 
 def _tier_label(tier: int) -> str:
@@ -184,7 +207,7 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     _progress(draw, 706, 466, 292, "Hours", creator.hours, incentive["hours"], lambda v: f"{int(round(v))}h", COLORS["blue"])
 
     _activeness_panel(draw, creator)
-    _best_day_panel(draw, daily_points)
+    _best_day_panels(draw, daily_points)
 
     final = downsample(image)
     output_path.parent.mkdir(parents=True, exist_ok=True)
