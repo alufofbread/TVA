@@ -27,6 +27,23 @@ class Creator:
     last_updated: str
 
 
+@dataclass(slots=True)
+class CreatorChannel:
+    creator_id: str
+    creator_name: str
+    channel_id: int
+    updated_by: int
+    updated_at: str
+
+
+@dataclass(slots=True)
+class LeaderboardChannel:
+    channel_type: str
+    channel_id: int
+    updated_by: int
+    updated_at: str
+
+
 class Database:
     def __init__(self, path: Path = DATABASE_PATH) -> None:
         ensure_directories()
@@ -78,6 +95,27 @@ class Database:
                     file_hash TEXT NOT NULL,
                     imported_at TEXT NOT NULL,
                     creator_count INTEGER NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS creator_channels (
+                    creator_id TEXT PRIMARY KEY,
+                    channel_id INTEGER NOT NULL,
+                    updated_by INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS leaderboard_channels (
+                    channel_type TEXT PRIMARY KEY,
+                    channel_id INTEGER NOT NULL,
+                    updated_by INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    CHECK (channel_type IN ('daily', 'monthly'))
                 )
                 """
             )
@@ -143,6 +181,67 @@ class Database:
                 """,
                 (avatar_url, avatar_path, now, creator_id),
             )
+
+    def set_creator_channel(self, creator_id: str, channel_id: int, updated_by: int) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO creator_channels (creator_id, channel_id, updated_by, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(creator_id) DO UPDATE SET
+                    channel_id = excluded.channel_id,
+                    updated_by = excluded.updated_by,
+                    updated_at = excluded.updated_at
+                """,
+                (creator_id, channel_id, updated_by, now),
+            )
+
+    def get_creator_channels(self) -> list[CreatorChannel]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    c.creator_id,
+                    c.creator_name,
+                    cc.channel_id,
+                    cc.updated_by,
+                    cc.updated_at
+                FROM creator_channels cc
+                INNER JOIN creators c ON c.creator_id = cc.creator_id
+                ORDER BY c.rank ASC
+                """
+            ).fetchall()
+        return [CreatorChannel(**dict(row)) for row in rows]
+
+    def set_leaderboard_channel(self, channel_type: str, channel_id: int, updated_by: int) -> None:
+        if channel_type not in {"daily", "monthly"}:
+            raise ValueError("leaderboard channel type must be 'daily' or 'monthly'")
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO leaderboard_channels (channel_type, channel_id, updated_by, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(channel_type) DO UPDATE SET
+                    channel_id = excluded.channel_id,
+                    updated_by = excluded.updated_by,
+                    updated_at = excluded.updated_at
+                """,
+                (channel_type, channel_id, updated_by, now),
+            )
+
+    def get_leaderboard_channels(self) -> list[LeaderboardChannel]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT channel_type, channel_id, updated_by, updated_at
+                FROM leaderboard_channels
+                ORDER BY CASE channel_type WHEN 'daily' THEN 0 ELSE 1 END
+                """
+            ).fetchall()
+        return [LeaderboardChannel(**dict(row)) for row in rows]
 
     def has_import_hash(self, file_hash: str) -> bool:
         with self.connect() as conn:
