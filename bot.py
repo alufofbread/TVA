@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -21,6 +22,15 @@ MAX_AUTO_STATS_CHANNELS = 25
 LEADERBOARD_CHANNEL_TYPES = {"daily", "monthly"}
 
 
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] [%(levelname)-8s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+
+
 def get_required_bot_token() -> str:
     if not BOT_TOKEN or BOT_TOKEN == "your-bot-token":
         raise RuntimeError(f"DISCORD_TOKEN is not set. Add it to {ENV_PATH}.")
@@ -39,6 +49,7 @@ def get_required_guild() -> discord.Object:
 class TeamVextalBot(discord.Client):
     def __init__(self) -> None:
         intents = discord.Intents.default()
+        intents.message_content = True
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self.database = Database()
@@ -217,6 +228,16 @@ async def send_saved_leaderboards() -> tuple[int, list[str]]:
 @bot.event
 async def on_ready() -> None:
     print(f"Team Vextal Analytics signed in as {bot.user}", flush=True)
+
+
+@bot.event
+async def on_disconnect() -> None:
+    print("Bot disconnected from Discord gateway", flush=True)
+
+
+@bot.event
+async def on_resumed() -> None:
+    print("Bot resumed connection to Discord gateway", flush=True)
 
 
 @bot.tree.command(name="help", description="Show Team Vextal bot commands.")
@@ -482,9 +503,16 @@ async def profile_import_creator_autocomplete(interaction: discord.Interaction, 
 
 
 def main() -> None:
+    configure_logging()
     print(f"Using data directory: {DATA_DIR}", flush=True)
     print(f"Using database: {DATABASE_PATH}", flush=True)
-    bot.run(get_required_bot_token())
+    try:
+        bot.run(get_required_bot_token(), log_handler=None)
+    except KeyboardInterrupt:
+        print("Bot interrupted", flush=True)
+    except Exception as exc:
+        print(f"Bot encountered an error: {exc}", flush=True)
+        raise
 
 
 if __name__ == "__main__":
