@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +9,10 @@ from uuid import uuid4
 
 import discord
 from discord import app_commands
+try:
+    from TikTokLive import TikTokLiveClient
+except ImportError:
+    TikTokLiveClient = None
 
 from avatars import cache_avatar_bytes
 from config import BOT_TOKEN, DATABASE_PATH, DATA_DIR, ENV_PATH, GUILD_ID, UPLOAD_DIR, ensure_directories
@@ -21,6 +26,9 @@ COMMAND_SYNC_TIMEOUT_SECONDS = 30
 MAX_AUTO_STATS_CHANNELS = 25
 BOT_CONTROLLER_ROLE_NAME = "bot controller"
 LEADERBOARD_CHANNEL_TYPES = {"daily", "monthly"}
+LIVE_NOTIFICATION_POLL_SECONDS = 300
+LIVE_NOTIFICATION_INITIAL_DELAY_SECONDS = 15
+DEFAULT_LIVE_NOTIFICATION_MESSAGE = "@everyone {creator} is live right now\ncheck it out here {url}"
 
 
 def configure_logging() -> None:
@@ -91,6 +99,7 @@ class TeamVextalBot(discord.Client):
         super().__init__(intents=intents)
         self.tree = TeamVextalCommandTree(self)
         self.database = Database()
+        self.live_notification_task: asyncio.Task | None = None
 
     async def setup_hook(self) -> None:
         guild = get_required_guild()
@@ -117,6 +126,13 @@ class TeamVextalBot(discord.Client):
         except discord.HTTPException as exc:
             print(f"Slash command sync failed, but the bot will still connect: {exc}", flush=True)
 
+    async def close(self) -> None:
+        if self.live_notification_task is not None:
+            self.live_notification_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.live_notification_task
+        await super().close()
+
 
 bot = TeamVextalBot()
 
@@ -135,6 +151,102 @@ def creator_autocomplete(current: str) -> list[app_commands.Choice[str]]:
         app_commands.Choice(name=f"{creator.creator_name} (@{creator.creator_id})"[:100], value=creator.creator_id)
         for creator in matches[:25]
     ]
+
+
+def normalize_tiktok_username(username: str) -> str:
+    cleaned = username.strip()
+    if "tiktok.com/@" in cleaned:
+        cleaned = cleaned.split("tiktok.com/@", 1)[1].split("/", 1)[0]
+    elif "/" in cleaned:
+        cleaned = cleaned.rstrip("/").split("/")[-1]
+    return cleaned.lstrip("@").lower()
+
+
+def creator_display_name(creator_id: str) -> str:
+    creator = bot.database.find_creator(creator_id)
+    return creator.creator_name if creator else f"@{creator_id}"
+
+
+async def is_tiktok_creator_live(creator_id: str) -> bool:
+    if TikTokLiveClient is None:
+        raise RuntimeError("TikTokLive is not installed. Run pip install -r requirements.txt and restart the bot.")
+
+    client = TikTokLiveClient(unique_id=f"@{creator_id}")
+    return bool(await client.is_live())
+
+
+def render_live_notification_message(template: str, creator_id: str) -> str:
+    creator_name = creator_display_name(creator_id)
+    url = f"https://www.tiktok.com/@{creator_id}/live"
+    try:
+        rendered = template.format(
+            creator=creator_name,
+            username=creator_id,
+            url=url,
+        )
+    except (KeyError, IndexError, ValueError):
+        rendered = template
+
+    return rendered.strip() or DEFAULT_LIVE_NOTIFICATION_MESSAGE.format(
+        creator=creator_name,
+        username=creator_id,
+        url=url,
+    )
+
+
+async def send_live_notification(channel_id: int, creator_id: str, message: str) -> bool:
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        channel = await bot.fetch_channel(channel_id)
+
+    if not isinstance(channel, discord.abc.Messageable):
+        return False
+
+    await channel.send(
+        render_live_notification_message(message, creator_id),
+        allowed_mentions=discord.AllowedMentions(everyone=True, users=True, roles=True),
+    )
+    return True
+
+
+async def creator_live_notification_loop() -> None:
+    await bot.wait_until_ready()
+    await asyncio.sleep(LIVE_NOTIFICATION_INITIAL_DELAY_SECONDS)
+    print("TikTok live notification watcher started.", flush=True)
+
+    while not bot.is_closed():
+        notifications = bot.database.get_creator_live_notifications()
+        if TikTokLiveClient is None and notifications:
+            print("TikTokLive is not installed; live notification checks are paused.", flush=True)
+        for notification in notifications:
+            if bot.is_closed():
+                break
+
+            try:
+                is_live = await is_tiktok_creator_live(notification.creator_id)
+            except Exception as exc:
+                print(f"TikTok live check failed for @{notification.creator_id}: {exc}", flush=True)
+                await asyncio.sleep(3)
+                continue
+
+            if is_live and not notification.last_live:
+                try:
+                    sent = await send_live_notification(
+                        notification.channel_id,
+                        notification.creator_id,
+                        notification.message,
+                    )
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+                    print(f"Could not send live notification for @{notification.creator_id}: {exc}", flush=True)
+                    sent = False
+
+                bot.database.update_creator_live_state(notification.creator_id, True, notified=sent)
+            elif is_live != notification.last_live:
+                bot.database.update_creator_live_state(notification.creator_id, is_live)
+
+            await asyncio.sleep(3)
+
+        await asyncio.sleep(LIVE_NOTIFICATION_POLL_SECONDS)
 
 
 async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, Path, str] | None:
@@ -267,6 +379,8 @@ async def send_saved_leaderboards() -> tuple[int, list[str]]:
 @bot.event
 async def on_ready() -> None:
     print(f"Team Vextal Analytics signed in as {bot.user}", flush=True)
+    if bot.live_notification_task is None or bot.live_notification_task.done():
+        bot.live_notification_task = asyncio.create_task(creator_live_notification_loop())
 
 
 @bot.event
@@ -324,6 +438,11 @@ async def help_command(interaction: discord.Interaction) -> None:
     embed.add_field(
         name="/set-channel",
         value="Assign a creator's stats and graphs to a Discord channel.",
+        inline=False,
+    )
+    embed.add_field(
+        name="/creator_notif",
+        value="Watch a TikTok creator and ping a channel when they go live.",
         inline=False,
     )
     embed.add_field(
@@ -529,6 +648,61 @@ async def set_channel_command_error(interaction: discord.Interaction, error: app
         message = "You need Manage Channels permission to set creator stats channels."
     else:
         message = f"Could not set the stats channel: {error}"
+
+    await send_app_error(interaction, message)
+
+
+@bot.tree.command(name="creator_notif", description="Ping a channel when a TikTok creator goes live.")
+@app_commands.describe(
+    creator_username="Creator ID or TikTok username. The imported creator IDs are usernames.",
+    message="Custom ping message. Supports {creator}, {username}, and {url}.",
+    channel="Channel that should receive the live notification.",
+)
+@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.check(bot_controller_check)
+async def creator_notif_command(
+    interaction: discord.Interaction,
+    creator_username: str,
+    message: str = DEFAULT_LIVE_NOTIFICATION_MESSAGE,
+    channel: discord.TextChannel | None = None,
+) -> None:
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    creator_id = normalize_tiktok_username(creator_username)
+    if not creator_id:
+        await interaction.followup.send("Please enter a TikTok username or creator ID.", ephemeral=True)
+        return
+
+    if len(message) > 1800:
+        await interaction.followup.send("Please keep the notification message under 1,800 characters.", ephemeral=True)
+        return
+
+    target_channel = channel or interaction.channel
+    if not isinstance(target_channel, discord.TextChannel):
+        await interaction.followup.send("Please choose a server text channel for live notifications.", ephemeral=True)
+        return
+
+    bot.database.set_creator_live_notification(creator_id, target_channel.id, message, interaction.user.id)
+    preview = render_live_notification_message(message, creator_id)
+    await interaction.followup.send(
+        f"Live notifications for @{creator_id} will be sent to {target_channel.mention}.\n"
+        f"Preview: {preview}",
+        ephemeral=True,
+    )
+
+
+@creator_notif_command.autocomplete("creator_username")
+async def creator_notif_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    return creator_autocomplete(current)
+
+
+@creator_notif_command.error
+async def creator_notif_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    if isinstance(error, BotControllerRequired):
+        message = f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot."
+    elif isinstance(error, app_commands.MissingPermissions):
+        message = "You need Manage Channels permission to set live notification channels."
+    else:
+        message = f"Could not set the live notification: {error}"
 
     await send_app_error(interaction, message)
 

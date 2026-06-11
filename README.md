@@ -10,12 +10,14 @@ Production-ready Discord slash-command bot for importing TikTok creator performa
 - `/stats creator_name` returns an individual creator analytics PNG as a manual fallback.
 - `/stats_all` sends all saved creator stats dashboards to their `/set-channel` channels.
 - `/set-channel creator_name channel` stores a creator's stats channel for automatic updates.
+- `/creator_notif creator_username message channel` stores a TikTok live alert for a creator.
 - `/profile-import creator_name image` manually sets a creator profile picture.
 - SQLite stores the current monthly creator snapshot.
 - Flexible spreadsheet column detection with clear import errors.
 - Tier, ranking, and incentive status recalculation after each import.
 - After `/import`, the bot sends each mapped creator their own stats and trends graphs.
 - When `/leaderboard` runs, the bot sends the leaderboard to the saved daily and monthly channels.
+- Every 5 minutes, the bot checks saved TikTok live alerts and sends one message when a creator goes live.
 
 ## Setup
 
@@ -85,6 +87,25 @@ Select bot permissions:
 Open the generated URL and invite the bot to the same server as `DISCORD_GUILD_ID`.
 
 If startup fails with `403 Forbidden: Missing Access`, the bot is not installed in that server or was invited without the `applications.commands` scope.
+
+## TikTok Live Notifications
+
+Use `/creator_notif creator_username message channel` to watch a creator. Creator IDs are treated as TikTok usernames, so `examplecreator` and `@examplecreator` both work.
+
+The custom message supports:
+
+- `{creator}` for the imported display name when available.
+- `{username}` for the TikTok username.
+- `{url}` for the TikTok LIVE URL.
+
+Example message:
+
+```text
+@everyone {creator} is live right now
+check it out here {url}
+```
+
+The bot uses the unofficial `TikTokLive` Python library and polls every 5 minutes. It sends one alert when a creator changes from offline to live, then waits until TikTok reports them offline before it can alert for that creator again.
 
 ## Expected Spreadsheet Columns
 

@@ -44,6 +44,17 @@ class LeaderboardChannel:
     updated_at: str
 
 
+@dataclass(slots=True)
+class CreatorLiveNotification:
+    creator_id: str
+    channel_id: int
+    message: str
+    updated_by: int
+    updated_at: str
+    last_live: bool
+    last_notified_at: str
+
+
 class Database:
     def __init__(self, path: Path = DATABASE_PATH) -> None:
         ensure_directories()
@@ -116,6 +127,19 @@ class Database:
                     updated_by INTEGER NOT NULL,
                     updated_at TEXT NOT NULL,
                     CHECK (channel_type IN ('daily', 'monthly'))
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS creator_live_notifications (
+                    creator_id TEXT PRIMARY KEY,
+                    channel_id INTEGER NOT NULL,
+                    message TEXT NOT NULL,
+                    updated_by INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_live INTEGER NOT NULL DEFAULT 0,
+                    last_notified_at TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
@@ -242,6 +266,72 @@ class Database:
                 """
             ).fetchall()
         return [LeaderboardChannel(**dict(row)) for row in rows]
+
+    def set_creator_live_notification(
+        self,
+        creator_id: str,
+        channel_id: int,
+        message: str,
+        updated_by: int,
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO creator_live_notifications (creator_id, channel_id, message, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(creator_id) DO UPDATE SET
+                    channel_id = excluded.channel_id,
+                    message = excluded.message,
+                    updated_by = excluded.updated_by,
+                    updated_at = excluded.updated_at
+                """,
+                (creator_id, channel_id, message, updated_by, now),
+            )
+
+    def get_creator_live_notifications(self) -> list[CreatorLiveNotification]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT creator_id, channel_id, message, updated_by, updated_at, last_live, last_notified_at
+                FROM creator_live_notifications
+                ORDER BY creator_id ASC
+                """
+            ).fetchall()
+        return [
+            CreatorLiveNotification(
+                creator_id=row["creator_id"],
+                channel_id=row["channel_id"],
+                message=row["message"],
+                updated_by=row["updated_by"],
+                updated_at=row["updated_at"],
+                last_live=bool(row["last_live"]),
+                last_notified_at=row["last_notified_at"],
+            )
+            for row in rows
+        ]
+
+    def update_creator_live_state(self, creator_id: str, is_live: bool, notified: bool = False) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self.connect() as conn:
+            if notified:
+                conn.execute(
+                    """
+                    UPDATE creator_live_notifications
+                    SET last_live = ?, last_notified_at = ?
+                    WHERE creator_id = ?
+                    """,
+                    (int(is_live), now, creator_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE creator_live_notifications
+                    SET last_live = ?
+                    WHERE creator_id = ?
+                    """,
+                    (int(is_live), creator_id),
+                )
 
     def has_import_hash(self, file_hash: str) -> bool:
         with self.connect() as conn:
