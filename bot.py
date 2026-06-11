@@ -29,6 +29,7 @@ LEADERBOARD_CHANNEL_TYPES = {"daily", "monthly"}
 LIVE_NOTIFICATION_POLL_SECONDS = 300
 LIVE_NOTIFICATION_INITIAL_DELAY_SECONDS = 15
 DEFAULT_LIVE_NOTIFICATION_MESSAGE = "@everyone {creator} is live right now\ncheck it out here {url}"
+LIVE_NOTIFICATION_CHANNEL_ID = 1512190588009582753
 
 
 def configure_logging() -> None:
@@ -195,9 +196,10 @@ def render_live_notification_message(template: str, creator_id: str) -> str:
 
 
 async def send_live_notification(channel_id: int, creator_id: str, message: str) -> bool:
-    channel = bot.get_channel(channel_id)
+    target_channel_id = LIVE_NOTIFICATION_CHANNEL_ID or channel_id
+    channel = bot.get_channel(target_channel_id)
     if channel is None:
-        channel = await bot.fetch_channel(channel_id)
+        channel = await bot.fetch_channel(target_channel_id)
 
     if not isinstance(channel, discord.abc.Messageable):
         return False
@@ -677,6 +679,11 @@ async def creator_notif_command(
         return
 
     target_channel = channel or interaction.channel
+    if LIVE_NOTIFICATION_CHANNEL_ID:
+        target_channel = bot.get_channel(LIVE_NOTIFICATION_CHANNEL_ID)
+        if target_channel is None:
+            target_channel = await bot.fetch_channel(LIVE_NOTIFICATION_CHANNEL_ID)
+
     if not isinstance(target_channel, discord.TextChannel):
         await interaction.followup.send("Please choose a server text channel for live notifications.", ephemeral=True)
         return

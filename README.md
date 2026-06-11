@@ -90,7 +90,7 @@ If startup fails with `403 Forbidden: Missing Access`, the bot is not installed 
 
 ## TikTok Live Notifications
 
-Use `/creator_notif creator_username message channel` to watch a creator. Creator IDs are treated as TikTok usernames, so `examplecreator` and `@examplecreator` both work.
+Use `/creator_notif creator_username message channel` to watch a creator. Creator IDs are treated as TikTok usernames, so `examplecreator` and `@examplecreator` both work. Live notifications are currently routed to Discord channel `1512190588009582753`.
 
 The custom message supports:
 
