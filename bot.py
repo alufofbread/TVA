@@ -445,7 +445,7 @@ async def set_channel_command(
     creator_name: str,
     channel: discord.TextChannel | None = None,
 ) -> None:
-    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.response.defer(thinking=True)
     creator = bot.database.find_creator(creator_name)
     if creator is None:
         await interaction.followup.send(f"I couldn't find a creator matching '{creator_name}'. Run /import first or check the spelling.", ephemeral=True)
