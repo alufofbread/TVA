@@ -723,10 +723,8 @@ async def creator_notif_command(
         return
 
     bot.database.set_creator_live_notification(creator_id, target_channel.id, message, interaction.user.id)
-    preview = render_live_notification_message(message, creator_id)
     await interaction.followup.send(
-        f"Live notifications for @{creator_id} will be sent to {target_channel.mention}.\n"
-        f"Preview: {preview}",
+        f"Live notifications for @{creator_id} will be sent to {target_channel.mention}.",
     )
 
 
