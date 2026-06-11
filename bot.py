@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import random
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -152,6 +153,13 @@ def creator_autocomplete(current: str) -> list[app_commands.Choice[str]]:
         app_commands.Choice(name=f"{creator.creator_name} (@{creator.creator_id})"[:100], value=creator.creator_id)
         for creator in matches[:25]
     ]
+
+
+def live_creator_autocomplete(current: str) -> list[app_commands.Choice[str]]:
+    choices = creator_autocomplete(current)
+    if "random".startswith(current.strip().lower()):
+        return [app_commands.Choice(name="Random creator", value="random"), *choices[:24]]
+    return choices
 
 
 def normalize_tiktok_username(username: str) -> str:
@@ -656,7 +664,7 @@ async def set_channel_command_error(interaction: discord.Interaction, error: app
 
 @bot.tree.command(name="creator_notif", description="Ping a channel when a TikTok creator goes live.")
 @app_commands.describe(
-    creator_username="Creator ID or TikTok username. The imported creator IDs are usernames.",
+    creator_username="Creator ID/TikTok username, or random to pick one from the imported DB.",
     message="Custom ping message. Supports {creator}, {username}, and {url}.",
     channel="Channel that should receive the live notification.",
 )
@@ -664,12 +672,22 @@ async def set_channel_command_error(interaction: discord.Interaction, error: app
 @app_commands.check(bot_controller_check)
 async def creator_notif_command(
     interaction: discord.Interaction,
-    creator_username: str,
+    creator_username: str | None = None,
     message: str = DEFAULT_LIVE_NOTIFICATION_MESSAGE,
     channel: discord.TextChannel | None = None,
 ) -> None:
     await interaction.response.defer(thinking=True, ephemeral=True)
-    creator_id = normalize_tiktok_username(creator_username)
+    creator_input = (creator_username or "random").strip()
+    if creator_input.lower() == "random":
+        creators = bot.database.get_creators()
+        if not creators:
+            await interaction.followup.send("No creators are imported yet. Run /import first, then try random.", ephemeral=True)
+            return
+        selected_creator = random.choice(creators)
+        creator_id = selected_creator.creator_id
+    else:
+        creator_id = normalize_tiktok_username(creator_input)
+
     if not creator_id:
         await interaction.followup.send("Please enter a TikTok username or creator ID.", ephemeral=True)
         return
@@ -699,7 +717,7 @@ async def creator_notif_command(
 
 @creator_notif_command.autocomplete("creator_username")
 async def creator_notif_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    return creator_autocomplete(current)
+    return live_creator_autocomplete(current)
 
 
 @creator_notif_command.error
