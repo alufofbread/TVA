@@ -57,16 +57,30 @@ def can_use_bot(user: discord.User | discord.Member) -> bool:
     return any(role.name.lower() == BOT_CONTROLLER_ROLE_NAME for role in user.roles)
 
 
+class BotControllerRequired(app_commands.CheckFailure):
+    pass
+
+
+async def bot_controller_check(interaction: discord.Interaction) -> bool:
+    if can_use_bot(interaction.user):
+        return True
+
+    raise BotControllerRequired()
+
+
+async def send_app_error(interaction: discord.Interaction, message: str) -> None:
+    if interaction.response.is_done():
+        await interaction.followup.send(message, ephemeral=True)
+    else:
+        await interaction.response.send_message(message, ephemeral=True)
+
+
 class TeamVextalCommandTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if can_use_bot(interaction.user):
             return True
 
-        message = f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot."
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+        await send_app_error(interaction, f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot.")
         return False
 
 
@@ -265,7 +279,17 @@ async def on_resumed() -> None:
     print("Bot resumed connection to Discord gateway", flush=True)
 
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    if isinstance(error, BotControllerRequired):
+        await send_app_error(interaction, f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot.")
+        return
+
+    raise error
+
+
 @bot.tree.command(name="help", description="Show Team Vextal bot commands.")
+@app_commands.check(bot_controller_check)
 async def help_command(interaction: discord.Interaction) -> None:
     embed = discord.Embed(
         title="Team Vextal Bot Help",
@@ -316,6 +340,7 @@ async def help_command(interaction: discord.Interaction) -> None:
 
 
 @bot.tree.command(name="ping", description="Check whether the bot is online.")
+@app_commands.check(bot_controller_check)
 async def ping_command(interaction: discord.Interaction) -> None:
     latency_ms = round(bot.latency * 1000)
     await interaction.response.send_message(f"Pong! Latency: {latency_ms} ms", ephemeral=True)
@@ -323,6 +348,7 @@ async def ping_command(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="import", description="Import the latest Team Vextal creator spreadsheet.")
 @app_commands.describe(spreadsheet="Excel spreadsheet containing creator performance data")
+@app_commands.check(bot_controller_check)
 async def import_command(interaction: discord.Interaction, spreadsheet: discord.Attachment) -> None:
     await interaction.response.defer(thinking=True, ephemeral=True)
     if not spreadsheet.filename.lower().endswith((".xlsx", ".xls", ".csv")):
@@ -357,6 +383,7 @@ async def import_command(interaction: discord.Interaction, spreadsheet: discord.
 
 
 @bot.tree.command(name="leaderboard", description="Generate the Team Vextal leaderboard dashboard.")
+@app_commands.check(bot_controller_check)
 async def leaderboard_command(interaction: discord.Interaction) -> None:
     await interaction.response.defer(thinking=True)
     full_path = await render_leaderboard_file("monthly")
@@ -373,6 +400,7 @@ async def leaderboard_command(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="stats", description="Generate an individual creator analytics dashboard.")
 @app_commands.describe(creator_name="Creator username or partial name")
+@app_commands.check(bot_controller_check)
 async def stats_command(interaction: discord.Interaction, creator_name: str) -> None:
     await interaction.response.defer(thinking=True)
     creator = bot.database.find_creator(creator_name)
@@ -397,6 +425,7 @@ async def stats_creator_autocomplete(interaction: discord.Interaction, current: 
 
 
 @bot.tree.command(name="stats_all", description="Send all saved creator stats dashboards to their assigned channels.")
+@app_commands.check(bot_controller_check)
 async def stats_all_command(interaction: discord.Interaction) -> None:
     await interaction.response.defer(thinking=True)
     sent_count, failures = await send_auto_stats_to_creator_channels(max_channels=None)
@@ -422,6 +451,7 @@ async def stats_all_command(interaction: discord.Interaction) -> None:
     ]
 )
 @app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.check(bot_controller_check)
 async def set_leaderboard_channel_command(
     interaction: discord.Interaction,
     leaderboard_type: app_commands.Choice[str],
@@ -446,15 +476,14 @@ async def set_leaderboard_channel_command(
 
 @set_leaderboard_channel_command.error
 async def set_leaderboard_channel_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-    if isinstance(error, app_commands.MissingPermissions):
+    if isinstance(error, BotControllerRequired):
+        message = f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot."
+    elif isinstance(error, app_commands.MissingPermissions):
         message = "You need Manage Channels permission to set leaderboard channels."
     else:
         message = f"Could not set the leaderboard channel: {error}"
 
-    if interaction.response.is_done():
-        await interaction.followup.send(message, ephemeral=True)
-    else:
-        await interaction.response.send_message(message, ephemeral=True)
+    await send_app_error(interaction, message)
 
 
 @bot.tree.command(name="set-channel", description="Send a creator's future stats and graphs to a channel.")
@@ -463,6 +492,7 @@ async def set_leaderboard_channel_command_error(interaction: discord.Interaction
     channel="Channel that should receive this creator's stats and graphs",
 )
 @app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.check(bot_controller_check)
 async def set_channel_command(
     interaction: discord.Interaction,
     creator_name: str,
@@ -493,15 +523,14 @@ async def set_channel_creator_autocomplete(interaction: discord.Interaction, cur
 
 @set_channel_command.error
 async def set_channel_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-    if isinstance(error, app_commands.MissingPermissions):
+    if isinstance(error, BotControllerRequired):
+        message = f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot."
+    elif isinstance(error, app_commands.MissingPermissions):
         message = "You need Manage Channels permission to set creator stats channels."
     else:
         message = f"Could not set the stats channel: {error}"
 
-    if interaction.response.is_done():
-        await interaction.followup.send(message, ephemeral=True)
-    else:
-        await interaction.response.send_message(message, ephemeral=True)
+    await send_app_error(interaction, message)
 
 
 @bot.tree.command(name="profile-import", description="Manually upload a creator profile picture.")
@@ -509,6 +538,7 @@ async def set_channel_command_error(interaction: discord.Interaction, error: app
     creator_name="Creator username from the imported creator list",
     image="Profile picture image to use on dashboards",
 )
+@app_commands.check(bot_controller_check)
 async def profile_import_command(
     interaction: discord.Interaction,
     creator_name: str,
