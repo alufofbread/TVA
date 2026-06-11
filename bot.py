@@ -343,7 +343,7 @@ async def help_command(interaction: discord.Interaction) -> None:
 @app_commands.check(bot_controller_check)
 async def ping_command(interaction: discord.Interaction) -> None:
     latency_ms = round(bot.latency * 1000)
-    await interaction.response.send_message(f"Pong! Latency: {latency_ms} ms", ephemeral=True)
+    await interaction.response.send_message(f"Pong! Latency: {latency_ms} ms")
 
 
 @bot.tree.command(name="import", description="Import the latest Team Vextal creator spreadsheet.")
