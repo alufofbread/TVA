@@ -7,7 +7,8 @@ Production-ready Discord slash-command bot for importing TikTok creator performa
 - `/import` accepts `.xlsx`, `.xls`, or `.csv` spreadsheet attachments.
 - `/leaderboard` returns a dark Team Vextal leaderboard PNG.
 - `/set-leaderboard-channel leaderboard_type channel` stores the daily or monthly leaderboard channel.
-- `/stats creator_name` returns an individual creator analytics PNG.
+- `/stats creator_name` returns an individual creator analytics PNG as a manual fallback.
+- `/stats_all` sends all saved creator stats dashboards to their `/set-channel` channels.
 - `/set-channel creator_name channel` stores a creator's stats channel for automatic updates.
 - `/profile-import creator_name image` manually sets a creator profile picture.
 - SQLite stores the current monthly creator snapshot.

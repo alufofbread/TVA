@@ -127,14 +127,15 @@ async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: s
     return None
 
 
-async def send_auto_stats_to_creator_channels() -> tuple[int, list[str]]:
+async def send_auto_stats_to_creator_channels(max_channels: int | None = MAX_AUTO_STATS_CHANNELS) -> tuple[int, list[str]]:
     assignments = bot.database.get_creator_channels()
     if not assignments:
         return 0, []
 
     sent_count = 0
     failures: list[str] = []
-    for assignment in assignments[:MAX_AUTO_STATS_CHANNELS]:
+    selected_assignments = assignments[:max_channels] if max_channels is not None else assignments
+    for assignment in selected_assignments:
         channel = bot.get_channel(assignment.channel_id)
         if channel is None:
             try:
@@ -161,8 +162,8 @@ async def send_auto_stats_to_creator_channels() -> tuple[int, list[str]]:
             continue
         sent_count += 1
 
-    if len(assignments) > MAX_AUTO_STATS_CHANNELS:
-        failures.append(f"Skipped {len(assignments) - MAX_AUTO_STATS_CHANNELS} extra channel assignments.")
+    if max_channels is not None and len(assignments) > max_channels:
+        failures.append(f"Skipped {len(assignments) - max_channels} extra channel assignments.")
 
     return sent_count, failures
 
@@ -264,7 +265,12 @@ async def help_command(interaction: discord.Interaction) -> None:
     )
     embed.add_field(
         name="/stats",
-        value="Generate an individual creator analytics dashboard.",
+        value="Generate an individual creator analytics dashboard as a manual fallback.",
+        inline=False,
+    )
+    embed.add_field(
+        name="/stats_all",
+        value="Send all saved creator stats dashboards to their /set-channel channels.",
         inline=False,
     )
     embed.add_field(
@@ -364,6 +370,21 @@ async def stats_command(interaction: discord.Interaction, creator_name: str) -> 
 @stats_command.autocomplete("creator_name")
 async def stats_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     return creator_autocomplete(current)
+
+
+@bot.tree.command(name="stats_all", description="Send all saved creator stats dashboards to their assigned channels.")
+async def stats_all_command(interaction: discord.Interaction) -> None:
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    sent_count, failures = await send_auto_stats_to_creator_channels(max_channels=None)
+    if not sent_count and not failures:
+        await interaction.followup.send("No creator stat channels are saved yet. Use /set-channel first.", ephemeral=True)
+        return
+
+    failure_note = f" {len(failures)} failed: {'; '.join(failures[:5])}" if failures else ""
+    await interaction.followup.send(
+        f"Sent updated stats to {sent_count} saved creator channel(s).{failure_note}",
+        ephemeral=True,
+    )
 
 
 @bot.tree.command(name="set-leaderboard-channel", description="Send future leaderboards to a daily or monthly channel.")
