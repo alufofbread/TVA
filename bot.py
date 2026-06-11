@@ -344,7 +344,7 @@ async def leaderboard_command(interaction: discord.Interaction) -> None:
     sent_count, failures = await send_saved_leaderboards()
     if sent_count or failures:
         failure_note = f" {len(failures)} failed: {'; '.join(failures[:5])}" if failures else ""
-        await interaction.followup.send(f"Sent leaderboard to {sent_count} saved channel(s).{failure_note}", ephemeral=True)
+        await interaction.followup.send(f"Sent leaderboard to {sent_count} saved channel(s).{failure_note}")
 
 
 @bot.tree.command(name="stats", description="Generate an individual creator analytics dashboard.")
@@ -374,16 +374,15 @@ async def stats_creator_autocomplete(interaction: discord.Interaction, current: 
 
 @bot.tree.command(name="stats_all", description="Send all saved creator stats dashboards to their assigned channels.")
 async def stats_all_command(interaction: discord.Interaction) -> None:
-    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.response.defer(thinking=True)
     sent_count, failures = await send_auto_stats_to_creator_channels(max_channels=None)
     if not sent_count and not failures:
-        await interaction.followup.send("No creator stat channels are saved yet. Use /set-channel first.", ephemeral=True)
+        await interaction.followup.send("No creator stat channels are saved yet. Use /set-channel first.")
         return
 
     failure_note = f" {len(failures)} failed: {'; '.join(failures[:5])}" if failures else ""
     await interaction.followup.send(
         f"Sent updated stats to {sent_count} saved creator channel(s).{failure_note}",
-        ephemeral=True,
     )
 
 
