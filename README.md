@@ -42,6 +42,8 @@ python bot.py
 
 Both `DISCORD_TOKEN` and `DISCORD_GUILD_ID` are required.
 
+Only members with Discord Administrator permission or the `bot controller` role can use bot commands.
+
 ## Railway Deployment
 
 Deploy the `vextal` folder as the Railway service root.

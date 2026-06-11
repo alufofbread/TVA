@@ -19,6 +19,7 @@ from importer import ImportErrorWithContext, import_spreadsheet
 
 COMMAND_SYNC_TIMEOUT_SECONDS = 30
 MAX_AUTO_STATS_CHANNELS = 25
+BOT_CONTROLLER_ROLE_NAME = "bot controller"
 LEADERBOARD_CHANNEL_TYPES = {"daily", "monthly"}
 
 
@@ -46,12 +47,35 @@ def get_required_guild() -> discord.Object:
         raise RuntimeError("DISCORD_GUILD_ID must be a numeric Discord server ID.") from exc
 
 
+def can_use_bot(user: discord.User | discord.Member) -> bool:
+    if not isinstance(user, discord.Member):
+        return False
+
+    if user.guild_permissions.administrator:
+        return True
+
+    return any(role.name.lower() == BOT_CONTROLLER_ROLE_NAME for role in user.roles)
+
+
+class TeamVextalCommandTree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if can_use_bot(interaction.user):
+            return True
+
+        message = f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot."
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+        return False
+
+
 class TeamVextalBot(discord.Client):
     def __init__(self) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self)
+        self.tree = TeamVextalCommandTree(self)
         self.database = Database()
 
     async def setup_hook(self) -> None:
