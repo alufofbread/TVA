@@ -27,10 +27,11 @@ COMMAND_SYNC_TIMEOUT_SECONDS = 30
 MAX_AUTO_STATS_CHANNELS = 25
 BOT_CONTROLLER_ROLE_NAME = "bot controller"
 LEADERBOARD_CHANNEL_TYPES = {"daily", "monthly"}
-LIVE_NOTIFICATION_POLL_SECONDS = 300
+LIVE_NOTIFICATION_POLL_SECONDS = 120
 LIVE_NOTIFICATION_INITIAL_DELAY_SECONDS = 15
 DEFAULT_LIVE_NOTIFICATION_MESSAGE = "@everyone {creator} is live right now\ncheck it out here {url}"
 LIVE_NOTIFICATION_CHANNEL_ID = 1512190588009582753
+LIVE_NOTIFICATION_CONCURRENT_CHECKS = 5
 
 
 def configure_logging() -> None:
@@ -219,42 +220,57 @@ async def send_live_notification(channel_id: int, creator_id: str, message: str)
     return True
 
 
+async def check_creator_live_notification(notification, semaphore: asyncio.Semaphore) -> None:
+    async with semaphore:
+        try:
+            is_live = await is_tiktok_creator_live(notification.creator_id)
+        except Exception as exc:
+            print(f"TikTok live check failed for @{notification.creator_id}: {exc}", flush=True)
+            return
+
+        if is_live and not notification.last_live:
+            try:
+                sent = await send_live_notification(
+                    notification.channel_id,
+                    notification.creator_id,
+                    notification.message,
+                )
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+                print(f"Could not send live notification for @{notification.creator_id}: {exc}", flush=True)
+                sent = False
+
+            bot.database.update_creator_live_state(notification.creator_id, True, notified=sent)
+        elif is_live != notification.last_live:
+            bot.database.update_creator_live_state(notification.creator_id, is_live)
+
+
 async def creator_live_notification_loop() -> None:
     await bot.wait_until_ready()
     await asyncio.sleep(LIVE_NOTIFICATION_INITIAL_DELAY_SECONDS)
     print("TikTok live notification watcher started.", flush=True)
 
     while not bot.is_closed():
+        creators = bot.database.get_creators()
+        if LIVE_NOTIFICATION_CHANNEL_ID and creators:
+            added_count = bot.database.ensure_creator_live_notifications(
+                (creator.creator_id for creator in creators),
+                LIVE_NOTIFICATION_CHANNEL_ID,
+                DEFAULT_LIVE_NOTIFICATION_MESSAGE,
+                updated_by=0,
+            )
+            if added_count:
+                print(f"Added {added_count} imported creator(s) to TikTok live watcher.", flush=True)
+
         notifications = bot.database.get_creator_live_notifications()
         if TikTokLiveClient is None and notifications:
             print("TikTokLive is not installed; live notification checks are paused.", flush=True)
-        for notification in notifications:
-            if bot.is_closed():
-                break
+            await asyncio.sleep(LIVE_NOTIFICATION_POLL_SECONDS)
+            continue
 
-            try:
-                is_live = await is_tiktok_creator_live(notification.creator_id)
-            except Exception as exc:
-                print(f"TikTok live check failed for @{notification.creator_id}: {exc}", flush=True)
-                await asyncio.sleep(3)
-                continue
-
-            if is_live and not notification.last_live:
-                try:
-                    sent = await send_live_notification(
-                        notification.channel_id,
-                        notification.creator_id,
-                        notification.message,
-                    )
-                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
-                    print(f"Could not send live notification for @{notification.creator_id}: {exc}", flush=True)
-                    sent = False
-
-                bot.database.update_creator_live_state(notification.creator_id, True, notified=sent)
-            elif is_live != notification.last_live:
-                bot.database.update_creator_live_state(notification.creator_id, is_live)
-
-            await asyncio.sleep(3)
+        semaphore = asyncio.Semaphore(LIVE_NOTIFICATION_CONCURRENT_CHECKS)
+        await asyncio.gather(
+            *(check_creator_live_notification(notification, semaphore) for notification in notifications)
+        )
 
         await asyncio.sleep(LIVE_NOTIFICATION_POLL_SECONDS)
 

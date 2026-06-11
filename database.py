@@ -289,6 +289,31 @@ class Database:
                 (creator_id, channel_id, message, updated_by, now),
             )
 
+    def ensure_creator_live_notifications(
+        self,
+        creator_ids: Iterable[str],
+        channel_id: int,
+        message: str,
+        updated_by: int,
+    ) -> int:
+        rows = [(creator_id, channel_id, message, updated_by) for creator_id in creator_ids]
+        if not rows:
+            return 0
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self.connect() as conn:
+            before = conn.total_changes
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO creator_live_notifications (
+                    creator_id, channel_id, message, updated_by, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [(creator_id, channel_id, message, updated_by, now) for creator_id, channel_id, message, updated_by in rows],
+            )
+            return conn.total_changes - before
+
     def get_creator_live_notifications(self) -> list[CreatorLiveNotification]:
         with self.connect() as conn:
             rows = conn.execute(

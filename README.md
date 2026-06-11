@@ -17,7 +17,7 @@ Production-ready Discord slash-command bot for importing TikTok creator performa
 - Tier, ranking, and incentive status recalculation after each import.
 - After `/import`, the bot sends each mapped creator their own stats and trends graphs.
 - When `/leaderboard` runs, the bot sends the leaderboard to the saved daily and monthly channels.
-- Every 5 minutes, the bot checks saved TikTok live alerts and sends one message when a creator goes live.
+- Every 2 minutes, the bot checks imported creators and sends one message when a creator goes live.
 
 ## Setup
 
@@ -105,7 +105,7 @@ Example message:
 check it out here {url}
 ```
 
-The bot uses the unofficial `TikTokLive` Python library and polls every 5 minutes. It sends one alert when a creator changes from offline to live, then waits until TikTok reports them offline before it can alert for that creator again.
+The bot uses the unofficial `TikTokLive` Python library and polls every 2 minutes. It automatically watches every imported creator and sends one alert when a creator changes from offline to live, then waits until TikTok reports them offline before it can alert for that creator again.
 
 ## Expected Spreadsheet Columns
 
