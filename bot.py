@@ -187,11 +187,12 @@ async def is_tiktok_creator_live(creator_id: str) -> bool:
 
 def render_live_notification_message(template: str, creator_id: str) -> str:
     creator_name = creator_display_name(creator_id)
-    url = f"https://www.tiktok.com/@{creator_id}/live"
+    username = creator_name.lstrip("@") or creator_id
+    url = f"https://www.tiktok.com/@{username}/live"
     try:
         rendered = template.format(
             creator=creator_name,
-            username=creator_id,
+            username=username,
             url=url,
         )
     except (KeyError, IndexError, ValueError):
@@ -724,7 +725,7 @@ async def creator_notif_command(
 
     bot.database.set_creator_live_notification(creator_id, target_channel.id, message, interaction.user.id)
     await interaction.followup.send(
-        f"Live notifications for @{creator_id} will be sent to {target_channel.mention}.",
+        f"Live notifications for @{creator_display_name(creator_id).lstrip('@')} will be sent to {target_channel.mention}.",
     )
 
 
