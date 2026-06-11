@@ -458,8 +458,8 @@ async def set_channel_command(
 
     bot.database.set_creator_channel(creator.creator_id, target_channel.id, interaction.user.id)
     await interaction.followup.send(
-        f"{creator.creator_name}'s stats and graphs will be sent to {target_channel.mention} after each import.",
-        ephemeral=True,
+        f"{creator.creator_name}'s stats and graphs will be sent to {target_channel.mention} after running /stats_all.",
+        ephemeral=False,
     )
 
 
