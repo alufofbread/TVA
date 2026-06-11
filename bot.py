@@ -692,12 +692,12 @@ async def creator_notif_command(
     message: str = DEFAULT_LIVE_NOTIFICATION_MESSAGE,
     channel: discord.TextChannel | None = None,
 ) -> None:
-    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.response.defer(thinking=True)
     creator_input = (creator_username or "random").strip()
     if creator_input.lower() == "random":
         creators = bot.database.get_creators()
         if not creators:
-            await interaction.followup.send("No creators are imported yet. Run /import first, then try random.", ephemeral=True)
+            await interaction.followup.send("No creators are imported yet. Run /import first, then try random.")
             return
         selected_creator = random.choice(creators)
         creator_id = selected_creator.creator_id
@@ -705,11 +705,11 @@ async def creator_notif_command(
         creator_id = normalize_tiktok_username(creator_input)
 
     if not creator_id:
-        await interaction.followup.send("Please enter a TikTok username or creator ID.", ephemeral=True)
+        await interaction.followup.send("Please enter a TikTok username or creator ID.")
         return
 
     if len(message) > 1800:
-        await interaction.followup.send("Please keep the notification message under 1,800 characters.", ephemeral=True)
+        await interaction.followup.send("Please keep the notification message under 1,800 characters.")
         return
 
     target_channel = channel or interaction.channel
@@ -719,7 +719,7 @@ async def creator_notif_command(
             target_channel = await bot.fetch_channel(LIVE_NOTIFICATION_CHANNEL_ID)
 
     if not isinstance(target_channel, discord.TextChannel):
-        await interaction.followup.send("Please choose a server text channel for live notifications.", ephemeral=True)
+        await interaction.followup.send("Please choose a server text channel for live notifications.")
         return
 
     bot.database.set_creator_live_notification(creator_id, target_channel.id, message, interaction.user.id)
@@ -727,7 +727,6 @@ async def creator_notif_command(
     await interaction.followup.send(
         f"Live notifications for @{creator_id} will be sent to {target_channel.mention}.\n"
         f"Preview: {preview}",
-        ephemeral=True,
     )
 
 
