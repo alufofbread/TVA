@@ -182,7 +182,7 @@ def _chart_card(
         return
 
     values = [_series_value(point, key) for point in points]
-    max_value = _nice_axis_max(max(values))
+    max_value = max(max(values), 1)
     min_value = 0
     span = max(max_value - min_value, 1)
 
@@ -216,7 +216,7 @@ def _chart_card(
     for index, point in enumerate(points):
         px = coords[index][0]
         line(draw, (px, plot_y + plot_h, px, plot_y + plot_h + 5), "#2C3239", 1)
-        label = f"{point.report_date.day} {point.report_date.strftime('%b')}"
+        label = str(point.report_date.day)
         anchor = "ma"
         if index == 0:
             anchor = None
