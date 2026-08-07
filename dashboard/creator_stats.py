@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import ImageDraw
 
 from config import TIER_THRESHOLDS
-from database import Creator
+from database import Creator, Referral
 from dashboard.style import (
     COLORS,
     canvas,
@@ -125,8 +125,39 @@ def _next_tier_progress(diamonds: int) -> tuple[str, str, int | None, float]:
     return _tier_label(current_tier), _tier_label(next_tier), next_threshold, pct
 
 
-def render_creator_stats(creator: Creator, total_creators: int, output_path: Path) -> Path:
-    image, draw = canvas(1100, 720)
+def _referral_card(draw: ImageDraw.ImageDraw, x: int, y: int, referral: Referral) -> None:
+    card_w = 408
+    rounded(draw, (x, y, x + card_w, y + 154), 10, COLORS["panel"], COLORS["border"])
+    text(draw, (x + 18, y + 17), fit_text(referral.creator_name, 250, 18, True), 18, COLORS["text"], True)
+    text(draw, (x + card_w - 18, y + 19), f"TIER {referral.current_tier}", 11, league_color(referral.current_tier), True, "ra")
+    text(draw, (x + 18, y + 49), f"{format_int(referral.diamonds)} diamonds", 16, COLORS["gold"], True)
+    text(draw, (x + 210, y + 49), format_hours(referral.hours), 16, COLORS["blue"], True)
+    text(draw, (x + 18, y + 80), f"{referral.days_remaining} days remaining", 12, COLORS["subtext"], True)
+    progress = max(0.0, min(1.0, 1 - referral.days_remaining / 30))
+    rounded(draw, (x + 18, y + 105, x + card_w - 18, y + 119), 7, "#20242A")
+    rounded(draw, (x + 18, y + 105, x + 18 + int((card_w - 36) * progress), y + 119), 7, COLORS["green"])
+    tier_label, next_label, next_threshold, tier_pct = _next_tier_progress(referral.diamonds)
+    target = f"{format_int(next_threshold)}" if next_threshold else "MAX"
+    text(draw, (x + 18, y + 131), f"{tier_label} → {next_label}  ·  {tier_pct:.0f}% ({target})", 11, COLORS["muted"])
+
+
+def _active_referrals_panel(draw: ImageDraw.ImageDraw, referrals: list[Referral]) -> None:
+    x, y, w = 1070, 22, 446
+    rounded(draw, (x, y, x + w, 698), 12, COLORS["panel_alt"], COLORS["border"])
+    text(draw, (x + 22, y + 24), "ACTIVE REFERRALS", 14, COLORS["muted"], True)
+    text(draw, (x + w - 22, y + 24), str(len(referrals)), 14, COLORS["gold"], True, "ra")
+    if not referrals:
+        text(draw, (x + 22, y + 74), "No active referrals", 20, COLORS["text"], True)
+        text(draw, (x + 22, y + 104), "Use /add-referral to start tracking one.", 13, COLORS["subtext"])
+        return
+    for index, referral in enumerate(referrals[:4]):
+        _referral_card(draw, x + 19, y + 58 + index * 158, referral)
+    if len(referrals) > 4:
+        text(draw, (x + 22, 674), f"+{len(referrals) - 4} more active referrals", 12, COLORS["muted"], True)
+
+
+def render_creator_stats(creator: Creator, total_creators: int, output_path: Path, referrals: list[Referral] | None = None) -> Path:
+    image, draw = canvas(1540, 720)
     current_tier_label, next_label, next_threshold, pct = _next_tier_progress(creator.diamonds)
     daily_points = load_creator_daily_trends(creator)
 
@@ -185,6 +216,7 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
 
     _activeness_panel(draw, creator)
     _best_day_panel(draw, daily_points)
+    _active_referrals_panel(draw, referrals or [])
 
     final = downsample(image)
     output_path.parent.mkdir(parents=True, exist_ok=True)

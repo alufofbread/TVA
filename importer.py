@@ -364,6 +364,12 @@ def import_spreadsheet(database, path: Path, report_date: date | None = None) ->
     creators, file_hash = load_creators_from_spreadsheet(path, report_date)
     duplicate = database.has_import_hash(file_hash)
     database.replace_creators(creators, path.name, file_hash)
+    # A repeated attachment only refreshes the visible snapshot; it must never add
+    # its referral delta a second time.
+    if not duplicate:
+        # Referrals retain their own cumulative totals, even though this import
+        # replaces the main creator table at every monthly reset.
+        database.update_referrals_from_snapshot(creators, report_date or date.today())
     return ImportResult(
         creator_count=len(creators),
         file_hash=file_hash,

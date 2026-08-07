@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -144,7 +144,8 @@ async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, Path, s
     creators = bot.database.get_creators()
     output_path = Path(__file__).resolve().parent / "data" / f"stats_{creator.creator_id}.png"
     trends_path = Path(__file__).resolve().parent / "data" / f"trends_{creator.creator_id}.png"
-    await asyncio.to_thread(render_creator_stats, creator, len(creators), output_path)
+    referrals = bot.database.get_referrals_for_referrer(creator.creator_id)
+    await asyncio.to_thread(render_creator_stats, creator, len(creators), output_path, referrals)
     await asyncio.to_thread(render_creator_trends, creator, trends_path)
     return output_path, trends_path, creator.creator_name
 
@@ -326,6 +327,11 @@ async def help_command(interaction: discord.Interaction) -> None:
         inline=False,
     )
     embed.add_field(
+        name="/add-referral",
+        value="Start a 30-day referral tracker for a referrer and creator.",
+        inline=False,
+    )
+    embed.add_field(
         name="/profile-import",
         value="Manually upload a creator profile picture.",
         inline=False,
@@ -420,6 +426,52 @@ async def stats_command(interaction: discord.Interaction, creator_name: str) -> 
 
 @stats_command.autocomplete("creator_name")
 async def stats_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    return creator_autocomplete(current)
+
+
+@bot.tree.command(name="add-referral", description="Start tracking a creator referral for 30 days.")
+@app_commands.describe(
+    referrer_name="Creator who made the referral",
+    referred_creator="Creator being referred (can be a new username)",
+    start_date="Referral start date in YYYY-MM-DD format",
+)
+@app_commands.check(bot_controller_check)
+async def add_referral_command(
+    interaction: discord.Interaction,
+    referrer_name: str,
+    referred_creator: str,
+    start_date: str,
+) -> None:
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    try:
+        referral_start = date.fromisoformat(start_date.strip())
+    except ValueError:
+        await interaction.followup.send("Start date must use YYYY-MM-DD, for example 2026-08-20.", ephemeral=True)
+        return
+
+    referrer = bot.database.find_creator(referrer_name)
+    if referrer is None:
+        await interaction.followup.send(
+            f"I couldn't find referrer '{referrer_name}'. Import the latest stats sheet first.", ephemeral=True
+        )
+        return
+    referred = bot.database.find_creator(referred_creator)
+    referral = bot.database.add_referral(referrer, referred, referred_creator, referral_start)
+    tracked_name = referral.creator_name
+    await interaction.followup.send(
+        f"Started tracking {tracked_name} for {referrer.creator_name}. "
+        f"The 30-day period ends on {referral.end_date}.",
+        ephemeral=True,
+    )
+
+
+@add_referral_command.autocomplete("referrer_name")
+async def add_referral_referrer_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    return creator_autocomplete(current)
+
+
+@add_referral_command.autocomplete("referred_creator")
+async def add_referral_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     return creator_autocomplete(current)
 
 

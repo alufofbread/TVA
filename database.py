@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -42,6 +42,25 @@ class LeaderboardChannel:
     channel_id: int
     updated_by: int
     updated_at: str
+
+
+@dataclass(slots=True)
+class Referral:
+    id: int
+    referrer_id: str
+    referrer_name: str
+    creator_id: str
+    creator_name: str
+    start_date: str
+    end_date: str
+    diamonds: int
+    hours: float
+    last_diamonds: int
+    last_hours: float
+    days_remaining: int
+    current_tier: int
+    status: str
+    final_reward: str
 
 
 class Database:
@@ -84,6 +103,28 @@ class Database:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS referrals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    referrer_id TEXT NOT NULL,
+                    referrer_name TEXT NOT NULL,
+                    creator_id TEXT NOT NULL DEFAULT '',
+                    creator_name TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    diamonds INTEGER NOT NULL DEFAULT 0,
+                    hours REAL NOT NULL DEFAULT 0,
+                    last_diamonds INTEGER NOT NULL DEFAULT 0,
+                    last_hours REAL NOT NULL DEFAULT 0,
+                    days_remaining INTEGER NOT NULL DEFAULT 30,
+                    current_tier INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL DEFAULT 'Active',
+                    final_reward TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id, status)")
             self._ensure_column(conn, "creators", "avatar_url", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "creators", "avatar_path", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "creators", "new_followers", "INTEGER NOT NULL DEFAULT 0")
@@ -168,6 +209,89 @@ class Database:
                 (filename, file_hash, now, len(rows)),
             )
         return len(rows)
+
+    def add_referral(self, referrer: Creator, creator: Creator | None, creator_name: str, start_date: date) -> Referral:
+        """Save a referral and baseline its current monthly snapshot.
+
+        The baseline prevents performance earned before the referral date from being counted.
+        """
+        end_date = start_date + timedelta(days=30)
+        referred_id = creator.creator_id if creator else ""
+        referred_name = creator.creator_name if creator else creator_name.strip()
+        baseline_diamonds = creator.diamonds if creator else 0
+        baseline_hours = creator.hours if creator else 0.0
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO referrals (
+                    referrer_id, referrer_name, creator_id, creator_name, start_date, end_date,
+                    last_diamonds, last_hours, days_remaining, current_tier
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (referrer.creator_id, referrer.creator_name, referred_id, referred_name,
+                 start_date.isoformat(), end_date.isoformat(), baseline_diamonds, baseline_hours,
+                 max(0, (end_date - date.today()).days), 1),
+            )
+            row = conn.execute("SELECT * FROM referrals WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return Referral(**dict(row))
+
+    def update_referrals_from_snapshot(self, creators: Iterable[dict], observed_on: date | None = None) -> None:
+        """Accumulate referral performance independently from the replaceable monthly snapshot."""
+        observed_on = observed_on or date.today()
+        creator_rows = list(creators)
+        by_id = {str(row["creator_id"]): row for row in creator_rows}
+        by_name = {str(row["creator_name"]).strip().lower(): row for row in creator_rows}
+        with self.connect() as conn:
+            referrals = conn.execute("SELECT * FROM referrals WHERE status = 'Active'").fetchall()
+            for referral in referrals:
+                end_date = date.fromisoformat(referral["end_date"])
+                creator = by_id.get(referral["creator_id"]) or by_name.get(referral["creator_name"].strip().lower())
+                diamonds, hours = referral["diamonds"], referral["hours"]
+                last_diamonds, last_hours = referral["last_diamonds"], referral["last_hours"]
+                creator_id = referral["creator_id"]
+                creator_name = referral["creator_name"]
+                if creator and observed_on >= date.fromisoformat(referral["start_date"]):
+                    current_diamonds = int(creator["diamonds"])
+                    current_hours = float(creator["hours"])
+                    # Monthly sheets are cumulative. A smaller value marks a new month, so
+                    # its full value is the new contribution rather than a negative delta.
+                    diamonds += current_diamonds - last_diamonds if current_diamonds >= last_diamonds else current_diamonds
+                    hours += current_hours - last_hours if current_hours >= last_hours else current_hours
+                    last_diamonds, last_hours = current_diamonds, current_hours
+                    creator_id, creator_name = creator["creator_id"], creator["creator_name"]
+
+                current_tier = self._tier_for_diamonds(diamonds)
+                days_remaining = max(0, (end_date - observed_on).days)
+                completed = observed_on >= end_date
+                status = "Completed" if completed else "Active"
+                final_reward = f"Tier {current_tier}" if completed else ""
+                conn.execute(
+                    """
+                    UPDATE referrals SET creator_id=?, creator_name=?, diamonds=?, hours=?,
+                        last_diamonds=?, last_hours=?, days_remaining=?, current_tier=?, status=?, final_reward=?
+                    WHERE id=?
+                    """,
+                    (creator_id, creator_name, int(round(diamonds)), round(hours, 2), last_diamonds,
+                     last_hours, days_remaining, current_tier, status, final_reward, referral["id"]),
+                )
+
+    @staticmethod
+    def _tier_for_diamonds(diamonds: int) -> int:
+        # Kept here to make stored referrals independent of the current snapshot table.
+        thresholds = (0, 100_000, 200_000, 300_000, 500_000, 700_000, 1_000_000, 1_600_000, 2_500_000, 5_000_000)
+        return max(index + 1 for index, threshold in enumerate(thresholds) if diamonds >= threshold)
+
+    def get_referrals_for_referrer(self, referrer_id: str, include_completed: bool = False) -> list[Referral]:
+        # A dashboard opened after day 30 must not keep showing an expired referral
+        # merely because no new spreadsheet has arrived that day.
+        self.update_referrals_from_snapshot([], date.today())
+        query = "SELECT * FROM referrals WHERE referrer_id = ?"
+        if not include_completed:
+            query += " AND status = 'Active'"
+        query += " ORDER BY end_date ASC, id ASC"
+        with self.connect() as conn:
+            rows = conn.execute(query, (referrer_id,)).fetchall()
+        return [Referral(**dict(row)) for row in rows]
 
     def update_creator_avatar(self, creator_id: str, avatar_url: str, avatar_path: str) -> None:
         now = datetime.now(timezone.utc).isoformat()
