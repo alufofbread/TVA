@@ -5,6 +5,7 @@ Production-ready Discord slash-command bot for importing TikTok creator performa
 ## Features
 
 - `/import` accepts `.xlsx`, `.xls`, or `.csv` spreadsheet attachments.
+- `/import-non-auto` accepts a spreadsheet but does not send creator stats or leaderboards.
 - `/leaderboard` returns a dark Team Vextal leaderboard PNG.
 - `/set-leaderboard-channel leaderboard_type channel` stores the daily or monthly leaderboard channel.
 - `/stats creator_name` returns an individual creator analytics PNG as a manual fallback.

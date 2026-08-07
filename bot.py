@@ -314,6 +314,11 @@ async def help_command(interaction: discord.Interaction) -> None:
         inline=False,
     )
     embed.add_field(
+        name="/import-non-auto",
+        value="Import a spreadsheet without automatically sending creator stats.",
+        inline=False,
+    )
+    embed.add_field(
         name="/leaderboard",
         value="Generate the Team Vextal leaderboard dashboard.",
         inline=False,
@@ -397,6 +402,36 @@ async def import_command(interaction: discord.Interaction, spreadsheet: discord.
             f"Auto-sent updated stats to {sent_count} creator channel(s).{failure_note}",
             ephemeral=True,
         )
+
+
+@bot.tree.command(name="import-non-auto", description="Import a spreadsheet without automatically sending creator stats.")
+@app_commands.describe(spreadsheet="Excel spreadsheet containing creator performance data")
+@app_commands.check(bot_controller_check)
+async def import_non_auto_command(interaction: discord.Interaction, spreadsheet: discord.Attachment) -> None:
+    """Refresh stored creator data without posting to any assigned channels."""
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    if not spreadsheet.filename.lower().endswith((".xlsx", ".xls", ".csv")):
+        await interaction.followup.send("Please upload a spreadsheet with a .xlsx, .xls, or .csv extension.", ephemeral=True)
+        return
+
+    ensure_directories()
+    destination = UPLOAD_DIR / f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}_{spreadsheet.filename}"
+    try:
+        await spreadsheet.save(destination)
+        result = await asyncio.to_thread(import_spreadsheet, bot.database, destination)
+    except ImportErrorWithContext as exc:
+        await interaction.followup.send(f"Import failed: {exc}", ephemeral=True)
+        return
+    except Exception as exc:
+        await interaction.followup.send(f"Import failed unexpectedly: {exc}", ephemeral=True)
+        return
+
+    duplicate_note = " Duplicate spreadsheet detected; the current snapshot was refreshed." if result.duplicate else ""
+    await interaction.followup.send(
+        f"Imported {result.creator_count} creators. Total diamonds: {result.total_diamonds:,}. "
+        f"No creator stats or leaderboards were sent.{duplicate_note}",
+        ephemeral=True,
+    )
 
 
 @bot.tree.command(name="leaderboard", description="Generate the Team Vextal leaderboard dashboard.")
