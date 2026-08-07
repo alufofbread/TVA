@@ -145,15 +145,16 @@ def _active_referrals_panel(draw: ImageDraw.ImageDraw, referrals: list[Referral]
     x, y, w = 1070, 22, 446
     rounded(draw, (x, y, x + w, 698), 12, COLORS["panel_alt"], COLORS["border"])
     text(draw, (x + 22, y + 24), "ACTIVE REFERRALS", 14, COLORS["muted"], True)
-    text(draw, (x + w - 22, y + 24), str(len(referrals)), 14, COLORS["gold"], True, "ra")
+    visible_count = 3
+    extra_count = max(0, len(referrals) - visible_count)
+    header_count = f"+{extra_count}" if extra_count else str(len(referrals))
+    text(draw, (x + w - 22, y + 24), header_count, 14, COLORS["gold"], True, "ra")
     if not referrals:
         text(draw, (x + 22, y + 74), "No active referrals", 20, COLORS["text"], True)
         text(draw, (x + 22, y + 104), "Use /add-referral to start tracking one.", 13, COLORS["subtext"])
         return
-    for index, referral in enumerate(referrals[:4]):
+    for index, referral in enumerate(referrals[:visible_count]):
         _referral_card(draw, x + 19, y + 58 + index * 158, referral)
-    if len(referrals) > 4:
-        text(draw, (x + 22, 674), f"+{len(referrals) - 4} more active referrals", 12, COLORS["muted"], True)
 
 
 def render_creator_stats(creator: Creator, total_creators: int, output_path: Path, referrals: list[Referral] | None = None) -> Path:

@@ -11,7 +11,7 @@ Production-ready Discord slash-command bot for importing TikTok creator performa
 - `/stats_all` sends all saved creator stats dashboards to their `/set-channel` channels.
 - `/set-channel creator_name channel` stores a creator's stats channel for automatic updates.
 - `/profile-import creator_name image` manually sets a creator profile picture.
-- `/add-referral referrer_name referred_creator start_date` starts a separate 30-day referral tracker.
+- `/add-referral referrer_name referred_creator` starts a 30-day referral tracker from the referred creator's imported Join time.
 - SQLite stores the current monthly creator snapshot.
 - Flexible spreadsheet column detection with clear import errors.
 - Tier, ranking, and incentive status recalculation after each import.
@@ -106,7 +106,7 @@ If no avatar URL is provided, the bot tries to fetch the TikTok profile image us
 
 ## Referrals
 
-Use `/add-referral` with the referrer's name, the referred creator, and a `YYYY-MM-DD` start date. The bot sets the end date to 30 days later and shows active referrals in a new right-hand column on the referrer's stats dashboard. Referral diamonds and live hours are stored separately from the monthly snapshot: each new import adds only the creator's increase, and a lower value is treated as the next month's reset. Completed referrals are locked and retained in the database.
+Use `/add-referral` with the referrer's name and the referred creator. The bot uses the referred creator's imported `Join time` as the start date, then sets the end date to 30 days later. It shows active referrals in a new right-hand column on the referrer's stats dashboard. Referral diamonds and live hours are stored separately from the monthly snapshot: each new import adds only the creator's increase, and a lower value is treated as the next month's reset. Completed referrals are locked and retained in the database.
 
 ## Tier System
 

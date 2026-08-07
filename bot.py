@@ -18,7 +18,6 @@ from database import Database
 from importer import ImportErrorWithContext, import_spreadsheet
 
 COMMAND_SYNC_TIMEOUT_SECONDS = 30
-MAX_AUTO_STATS_CHANNELS = 25
 BOT_CONTROLLER_ROLE_NAME = "bot controller"
 LEADERBOARD_CHANNEL_TYPES = {"daily", "monthly"}
 
@@ -151,6 +150,19 @@ async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, Path, s
 
 
 async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: str) -> str | None:
+    creator = bot.database.find_creator(creator_id)
+    if creator is None:
+        return "creator missing from the latest import"
+
+    # A creator with no live hours does not need an empty dashboard (or the
+    # Send Files permission). Give their own assigned channel a clear update.
+    if creator.hours <= 0:
+        await channel.send(
+            f"Hi {creator.creator_name}! You haven't gone live yet this month, so there are no stats to share just yet. "
+            "Once you go LIVE, your stats will be sent here after the next data import."
+        )
+        return None
+
     rendered = await render_creator_dashboard_files(creator_id)
     if rendered is None:
         return "creator missing from the latest import"
@@ -165,7 +177,7 @@ async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: s
     return None
 
 
-async def send_auto_stats_to_creator_channels(max_channels: int | None = MAX_AUTO_STATS_CHANNELS) -> tuple[int, list[str]]:
+async def send_auto_stats_to_creator_channels(max_channels: int | None = None) -> tuple[int, list[str]]:
     assignments = bot.database.get_creator_channels()
     if not assignments:
         return 0, []
@@ -429,26 +441,18 @@ async def stats_creator_autocomplete(interaction: discord.Interaction, current: 
     return creator_autocomplete(current)
 
 
-@bot.tree.command(name="add-referral", description="Start tracking a creator referral for 30 days.")
+@bot.tree.command(name="add-referral", description="Start tracking a referral from the referred creator's join date.")
 @app_commands.describe(
     referrer_name="Creator who made the referral",
-    referred_creator="Creator being referred (can be a new username)",
-    start_date="Referral start date in YYYY-MM-DD format",
+    referred_creator="Creator being referred (uses their imported Join time)",
 )
 @app_commands.check(bot_controller_check)
 async def add_referral_command(
     interaction: discord.Interaction,
     referrer_name: str,
     referred_creator: str,
-    start_date: str,
 ) -> None:
     await interaction.response.defer(thinking=True, ephemeral=True)
-    try:
-        referral_start = date.fromisoformat(start_date.strip())
-    except ValueError:
-        await interaction.followup.send("Start date must use YYYY-MM-DD, for example 2026-08-20.", ephemeral=True)
-        return
-
     referrer = bot.database.find_creator(referrer_name)
     if referrer is None:
         await interaction.followup.send(
@@ -456,10 +460,23 @@ async def add_referral_command(
         )
         return
     referred = bot.database.find_creator(referred_creator)
+    if referred is None:
+        await interaction.followup.send(
+            f"I couldn't find referred creator '{referred_creator}'. Import the latest stats sheet first.",
+            ephemeral=True,
+        )
+        return
+    if not referred.join_date:
+        await interaction.followup.send(
+            f"{referred.creator_name} has no Join time in the imported data. Import a sheet with a Join time column first.",
+            ephemeral=True,
+        )
+        return
+    referral_start = date.fromisoformat(referred.join_date)
     referral = bot.database.add_referral(referrer, referred, referred_creator, referral_start)
     tracked_name = referral.creator_name
     await interaction.followup.send(
-        f"Started tracking {tracked_name} for {referrer.creator_name}. "
+        f"Started tracking {tracked_name} for {referrer.creator_name} from their join date ({referral.start_date}). "
         f"The 30-day period ends on {referral.end_date}.",
         ephemeral=True,
     )

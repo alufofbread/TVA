@@ -24,6 +24,7 @@ class Creator:
     incentive_status: str
     avatar_url: str
     avatar_path: str
+    join_date: str
     last_updated: str
 
 
@@ -99,6 +100,7 @@ class Database:
                     incentive_status TEXT NOT NULL DEFAULT 'IN_PROGRESS',
                     avatar_url TEXT NOT NULL DEFAULT '',
                     avatar_path TEXT NOT NULL DEFAULT '',
+                    join_date TEXT NOT NULL DEFAULT '',
                     last_updated TEXT NOT NULL
                 )
                 """
@@ -128,6 +130,7 @@ class Database:
             self._ensure_column(conn, "creators", "avatar_url", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "creators", "avatar_path", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "creators", "new_followers", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "creators", "join_date", "TEXT NOT NULL DEFAULT ''")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS import_history (
@@ -170,7 +173,7 @@ class Database:
         now = datetime.now(timezone.utc).isoformat()
         with self.connect() as conn:
             existing_rows = conn.execute(
-                "SELECT creator_id, creator_name, avatar_url, avatar_path, tier FROM creators"
+                "SELECT creator_id, creator_name, avatar_url, avatar_path, join_date, tier FROM creators"
             ).fetchall()
             existing_by_id = {row["creator_id"]: row for row in existing_rows}
             existing_by_name = {row["creator_name"].strip().lower(): row for row in existing_rows}
@@ -182,6 +185,8 @@ class Database:
                 if existing and not row.get("avatar_path"):
                     row["avatar_url"] = existing["avatar_url"]
                     row["avatar_path"] = existing["avatar_path"]
+                if existing and not row.get("join_date"):
+                    row["join_date"] = existing["join_date"]
                 if existing and row.pop("preserve_existing_tier", False):
                     row["tier"] = existing["tier"]
                 else:
@@ -192,11 +197,11 @@ class Database:
                 """
                 INSERT INTO creators (
                     creator_id, creator_name, diamonds, hours, days, battles, new_followers,
-                    tier, rank, incentive_status, avatar_url, avatar_path, last_updated
+                    tier, rank, incentive_status, avatar_url, avatar_path, join_date, last_updated
                 )
                 VALUES (
                     :creator_id, :creator_name, :diamonds, :hours, :days, :battles, :new_followers,
-                    :tier, :rank, :incentive_status, :avatar_url, :avatar_path, :last_updated
+                    :tier, :rank, :incentive_status, :avatar_url, :avatar_path, :join_date, :last_updated
                 )
                 """,
                 [{**row, "last_updated": now} for row in rows],

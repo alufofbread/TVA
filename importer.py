@@ -56,6 +56,7 @@ COLUMN_ALIASES = {
     "battles": {"battles", "battle", "total battles", "pk battles", "matches", "match count"},
     "new_followers": {"new followers"},
     "data_period": {"data period", "period", "date period", "reporting period"},
+    "join_date": {"join time", "join date", "joined at", "date joined"},
     "avatar_url": {
         "avatar",
         "avatar url",
@@ -293,6 +294,10 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
         df["avatar_url"] = ""
     if "new_followers" not in df.columns:
         df["new_followers"] = 0
+    if "join_date" in df.columns:
+        df["join_date"] = df["join_date"].apply(parse_period_end)
+    else:
+        df["join_date"] = None
     has_previous_month_diamonds = "previous_month_diamonds" in df.columns
     if not has_previous_month_diamonds:
         df["previous_month_diamonds"] = df["diamonds"]
@@ -318,6 +323,7 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
             "new_followers": group["new_followers"].sum(),
             "previous_month_diamonds": latest["previous_month_diamonds"],
             "avatar_url": latest.get("avatar_url", ""),
+            "join_date": latest.get("join_date"),
         }
         grouped_rows.append(monthly)
 
@@ -333,6 +339,8 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
         new_followers = int(round(row["new_followers"]))
         creator_id = clean_identifier(row["creator_id"], row["creator_name"])
         avatar_url = clean_optional_text(row.get("avatar_url", ""))
+        join_date_value = parse_period_end(row.get("join_date"))
+        join_date = join_date_value.isoformat() if join_date_value else ""
         cached_avatar = cache_avatar(creator_id, avatar_url) if cache_avatars else None
         if cached_avatar:
             avatar_url, avatar_path = cached_avatar
@@ -353,6 +361,7 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
                 "incentive_status": incentive_status(diamonds, days, hours, report_date),
                 "avatar_url": avatar_url,
                 "avatar_path": avatar_path,
+                "join_date": join_date,
             }
         )
 
