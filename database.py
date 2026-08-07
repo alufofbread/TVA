@@ -223,19 +223,26 @@ class Database:
         end_date = start_date + timedelta(days=30)
         referred_id = creator.creator_id if creator else ""
         referred_name = creator.creator_name if creator else creator_name.strip()
-        baseline_diamonds = creator.diamonds if creator else 0
-        baseline_hours = creator.hours if creator else 0.0
+        # The spreadsheet is month-to-date. For someone who joined this month,
+        # every reported metric belongs to the referral period, even if the
+        # referral is recorded after the latest import.
+        joined_this_month = (start_date.year, start_date.month) == (date.today().year, date.today().month)
+        baseline_diamonds = 0 if creator and joined_this_month else (creator.diamonds if creator else 0)
+        baseline_hours = 0.0 if creator and joined_this_month else (creator.hours if creator else 0.0)
+        starting_diamonds = creator.diamonds if creator and joined_this_month else 0
+        starting_hours = creator.hours if creator and joined_this_month else 0.0
         with self.connect() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO referrals (
                     referrer_id, referrer_name, creator_id, creator_name, start_date, end_date,
-                    last_diamonds, last_hours, days_remaining, current_tier
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    diamonds, hours, last_diamonds, last_hours, days_remaining, current_tier
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (referrer.creator_id, referrer.creator_name, referred_id, referred_name,
-                 start_date.isoformat(), end_date.isoformat(), baseline_diamonds, baseline_hours,
-                 max(0, (end_date - date.today()).days), 1),
+                 start_date.isoformat(), end_date.isoformat(), starting_diamonds, starting_hours,
+                 baseline_diamonds, baseline_hours, max(0, (end_date - date.today()).days),
+                 self._tier_for_diamonds(starting_diamonds)),
             )
             row = conn.execute("SELECT * FROM referrals WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return Referral(**dict(row))
@@ -258,12 +265,25 @@ class Database:
                 if creator and observed_on >= date.fromisoformat(referral["start_date"]):
                     current_diamonds = int(creator["diamonds"])
                     current_hours = float(creator["hours"])
-                    # Monthly sheets are cumulative. A smaller value marks a new month, so
-                    # its full value is the new contribution rather than a negative delta.
-                    diamonds += current_diamonds - last_diamonds if current_diamonds >= last_diamonds else current_diamonds
-                    hours += current_hours - last_hours if current_hours >= last_hours else current_hours
-                    last_diamonds, last_hours = current_diamonds, current_hours
-                    creator_id, creator_name = creator["creator_id"], creator["creator_name"]
+                    referral_start = date.fromisoformat(referral["start_date"])
+                    joined_this_month = (referral_start.year, referral_start.month) == (
+                        observed_on.year,
+                        observed_on.month,
+                    )
+                    # Repair referrals created after an import under the old
+                    # baseline logic. Their month-to-date performance should
+                    # count from their Join time, rather than remain at zero.
+                    if joined_this_month and diamonds == 0 and hours == 0:
+                        diamonds, hours = current_diamonds, current_hours
+                        last_diamonds, last_hours = current_diamonds, current_hours
+                        creator_id, creator_name = creator["creator_id"], creator["creator_name"]
+                    else:
+                        # Monthly sheets are cumulative. A smaller value marks a new month, so
+                        # its full value is the new contribution rather than a negative delta.
+                        diamonds += current_diamonds - last_diamonds if current_diamonds >= last_diamonds else current_diamonds
+                        hours += current_hours - last_hours if current_hours >= last_hours else current_hours
+                        last_diamonds, last_hours = current_diamonds, current_hours
+                        creator_id, creator_name = creator["creator_id"], creator["creator_name"]
 
                 current_tier = self._tier_for_diamonds(diamonds)
                 days_remaining = max(0, (end_date - observed_on).days)
@@ -289,7 +309,11 @@ class Database:
     def get_referrals_for_referrer(self, referrer_id: str, include_completed: bool = False) -> list[Referral]:
         # A dashboard opened after day 30 must not keep showing an expired referral
         # merely because no new spreadsheet has arrived that day.
-        self.update_referrals_from_snapshot([], date.today())
+        # Reconcile against the current snapshot so referrals created after an
+        # import can immediately show their already-earned month-to-date totals.
+        with self.connect() as conn:
+            creators = [dict(row) for row in conn.execute("SELECT * FROM creators").fetchall()]
+        self.update_referrals_from_snapshot(creators, date.today())
         query = "SELECT * FROM referrals WHERE referrer_id = ?"
         if not include_completed:
             query += " AND status = 'Active'"
