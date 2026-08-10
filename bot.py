@@ -527,6 +527,56 @@ async def add_referral_creator_autocomplete(interaction: discord.Interaction, cu
     return creator_autocomplete(current)
 
 
+@bot.tree.command(name="remove-referral", description="Remove an active referral so it can be added again.")
+@app_commands.describe(
+    referrer_name="Creator who made the referral",
+    referred_creator="Referred creator to remove",
+)
+@app_commands.check(bot_controller_check)
+async def remove_referral_command(
+    interaction: discord.Interaction,
+    referrer_name: str,
+    referred_creator: str,
+) -> None:
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    referrer = bot.database.find_creator(referrer_name)
+    if referrer is None:
+        await interaction.followup.send(
+            f"I couldn't find referrer '{referrer_name}'. Check the spelling or import the latest sheet.",
+            ephemeral=True,
+        )
+        return
+
+    referred = bot.database.find_creator(referred_creator)
+    removed = bot.database.remove_referral(referrer.creator_id, referred, referred_creator)
+    if removed is None:
+        await interaction.followup.send(
+            f"No active referral for {referred_creator} under {referrer.creator_name} was found.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.followup.send(
+        f"Removed {removed.creator_name}'s referral under {referrer.creator_name} "
+        f"(started {removed.start_date}). You can now use /add-referral to create it again.",
+        ephemeral=True,
+    )
+
+
+@remove_referral_command.autocomplete("referrer_name")
+async def remove_referral_referrer_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    return creator_autocomplete(current)
+
+
+@remove_referral_command.autocomplete("referred_creator")
+async def remove_referral_creator_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    return creator_autocomplete(current)
+
+
 @bot.tree.command(name="stats_all", description="Send all saved creator stats dashboards to their assigned channels.")
 @app_commands.check(bot_controller_check)
 async def stats_all_command(interaction: discord.Interaction) -> None:

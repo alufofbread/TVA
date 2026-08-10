@@ -261,6 +261,27 @@ class Database:
             row = conn.execute("SELECT * FROM referrals WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return Referral(**dict(row))
 
+    def remove_referral(self, referrer_id: str, creator: Creator | None, creator_name: str) -> Referral | None:
+        """Remove the active referral matching a referrer and referred creator."""
+        referred_id = creator.creator_id if creator else ""
+        referred_name = (creator.creator_name if creator else creator_name).strip().lower()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM referrals
+                WHERE referrer_id = ?
+                  AND status = 'Active'
+                  AND (creator_id = ? OR lower(trim(creator_name)) = ?)
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (referrer_id, referred_id, referred_name),
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute("DELETE FROM referrals WHERE id = ?", (row["id"],))
+        return Referral(**dict(row))
+
     def update_referrals_from_snapshot(self, creators: Iterable[dict], observed_on: date | None = None) -> None:
         """Accumulate referral performance independently from the replaceable monthly snapshot."""
         observed_on = observed_on or date.today()
