@@ -358,6 +358,11 @@ async def help_command(interaction: discord.Interaction) -> None:
         value="Check whether the bot is online and see its latency.",
         inline=False,
     )
+    embed.add_field(
+        name="/announce",
+        value="Post an announcement message in a selected channel.",
+        inline=False,
+    )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -366,6 +371,33 @@ async def help_command(interaction: discord.Interaction) -> None:
 async def ping_command(interaction: discord.Interaction) -> None:
     latency_ms = round(bot.latency * 1000)
     await interaction.response.send_message(f"Pong! Latency: {latency_ms} ms")
+
+
+@bot.tree.command(name="announce", description="Post an announcement in a selected channel.")
+@app_commands.describe(
+    channel="Channel where the announcement should be posted",
+    message="Announcement text (mentions are enabled)",
+)
+@app_commands.check(bot_controller_check)
+async def announce_command(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    message: app_commands.Range[str, 1, 2_000],
+) -> None:
+    try:
+        # Do not override Discord's default allowed mentions: announcements are
+        # intentionally permitted to notify mentioned members, roles, and everyone.
+        await channel.send(message)
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"I don't have permission to post in {channel.mention}.", ephemeral=True
+        )
+        return
+    except discord.HTTPException as exc:
+        await interaction.response.send_message(f"I couldn't send that announcement: {exc}", ephemeral=True)
+        return
+
+    await interaction.response.send_message(f"Announcement sent to {channel.mention}.", ephemeral=True)
 
 
 @bot.tree.command(name="import", description="Import the latest Team Vextal creator spreadsheet.")
