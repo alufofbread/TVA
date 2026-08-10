@@ -241,8 +241,12 @@ class Database:
         # every reported metric belongs to the referral period, even if the
         # referral is recorded after the latest import.
         joined_this_month = (start_date.year, start_date.month) == (date.today().year, date.today().month)
-        baseline_diamonds = 0 if creator and joined_this_month else (creator.diamonds if creator else 0)
-        baseline_hours = 0.0 if creator and joined_this_month else (creator.hours if creator else 0.0)
+        # Always retain the latest cumulative spreadsheet values as the last
+        # snapshot.  Current-month referrals begin with the full month-to-date
+        # total, so storing zero here would add that same total again when the
+        # dashboard next reconciles the referral.
+        baseline_diamonds = creator.diamonds if creator else 0
+        baseline_hours = creator.hours if creator else 0.0
         starting_diamonds = creator.diamonds if creator and joined_this_month else 0
         starting_hours = creator.hours if creator and joined_this_month else 0.0
         with self.connect() as conn:
@@ -305,10 +309,12 @@ class Database:
                         observed_on.year,
                         observed_on.month,
                     )
-                    # Repair referrals created after an import under the old
-                    # baseline logic. Their month-to-date performance should
-                    # count from their Join time, rather than remain at zero.
-                    if joined_this_month and diamonds == 0 and hours == 0:
+                    # A referral which began this month owns all month-to-date
+                    # performance. The sheet is cumulative, so use its current
+                    # value directly rather than adding a delta to an initial
+                    # snapshot (which previously counted that first snapshot
+                    # twice). This also repairs existing affected referrals.
+                    if joined_this_month:
                         diamonds, hours = current_diamonds, current_hours
                         last_diamonds, last_hours = current_diamonds, current_hours
                         creator_id, creator_name = creator["creator_id"], creator["creator_name"]
