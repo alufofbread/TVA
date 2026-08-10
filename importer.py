@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -305,6 +306,29 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
     for metric in ("new_followers", "previous_month_diamonds"):
         df[metric] = df[metric].apply(parse_number)
 
+    # Some exports contain the same daily record more than once (for example
+    # when a worksheet has been duplicated).  These rows must be removed before
+    # the per-creator totals below are calculated; otherwise that day's figures
+    # are added twice and referral progress is inflated as a consequence.
+    duplicate_columns = [
+        column
+        for column in (
+            "creator_id",
+            "creator_name",
+            "data_period",
+            "diamonds",
+            "hours",
+            "days",
+            "battles",
+            "new_followers",
+            "previous_month_diamonds",
+            "join_date",
+        )
+        if column in df.columns
+    ]
+    if duplicate_columns:
+        df = df.drop_duplicates(subset=duplicate_columns, keep="first").copy()
+
     if "_period_end" in df.columns:
         df["_period_sort"] = df["_period_end"].fillna(report_date or date.min)
     else:
@@ -371,14 +395,35 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
 
 def import_spreadsheet(database, path: Path, report_date: date | None = None) -> ImportResult:
     creators, file_hash = load_creators_from_spreadsheet(path, report_date)
-    duplicate = database.has_import_hash(file_hash)
-    database.replace_creators(creators, path.name, file_hash)
+    observed_on = report_date or date.today()
+    # Excel exports of the same daily stats can have different file metadata and
+    # hashes. Deduplicate the referral update by the actual metrics instead.
+    referral_snapshot = {
+        "observed_on": observed_on.isoformat(),
+        "creators": sorted(
+            (
+                {
+                    "id": str(row["creator_id"]),
+                    "name": str(row["creator_name"]).strip().lower(),
+                    "diamonds": int(row["diamonds"]),
+                    "hours": round(float(row["hours"]), 2),
+                }
+                for row in creators
+            ),
+            key=lambda row: (row["id"], row["name"]),
+        ),
+    }
+    snapshot_hash = hashlib.sha256(
+        json.dumps(referral_snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    duplicate = database.has_import_hash(file_hash) or database.has_referral_snapshot_hash(snapshot_hash)
+    database.replace_creators(creators, path.name, file_hash, snapshot_hash)
     # A repeated attachment only refreshes the visible snapshot; it must never add
     # its referral delta a second time.
     if not duplicate:
         # Referrals retain their own cumulative totals, even though this import
         # replaces the main creator table at every monthly reset.
-        database.update_referrals_from_snapshot(creators, report_date or date.today())
+        database.update_referrals_from_snapshot(creators, observed_on)
     return ImportResult(
         creator_count=len(creators),
         file_hash=file_hash,

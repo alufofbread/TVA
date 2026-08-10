@@ -137,11 +137,13 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     filename TEXT NOT NULL,
                     file_hash TEXT NOT NULL,
+                    snapshot_hash TEXT NOT NULL DEFAULT '',
                     imported_at TEXT NOT NULL,
                     creator_count INTEGER NOT NULL
                 )
                 """
             )
+            self._ensure_column(conn, "import_history", "snapshot_hash", "TEXT NOT NULL DEFAULT ''")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS creator_channels (
@@ -168,7 +170,7 @@ class Database:
         if column not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
-    def replace_creators(self, creators: Iterable[dict], filename: str, file_hash: str) -> int:
+    def replace_creators(self, creators: Iterable[dict], filename: str, file_hash: str, snapshot_hash: str = "") -> int:
         rows = list(creators)
         now = datetime.now(timezone.utc).isoformat()
         with self.connect() as conn:
@@ -206,12 +208,24 @@ class Database:
                 """,
                 [{**row, "last_updated": now} for row in rows],
             )
+            # Keep one history record per file.  Re-uploading an identical
+            # spreadsheet may refresh the current snapshot, but it is not a
+            # new reporting day and should not create another import entry.
+            # Backfill this value on pre-existing history rows during the
+            # migration to content-based referral deduplication.
+            conn.execute(
+                "UPDATE import_history SET snapshot_hash = ? WHERE file_hash = ? AND snapshot_hash = ''",
+                (snapshot_hash, file_hash),
+            )
             conn.execute(
                 """
-                INSERT INTO import_history (filename, file_hash, imported_at, creator_count)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO import_history (filename, file_hash, snapshot_hash, imported_at, creator_count)
+                SELECT ?, ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM import_history WHERE file_hash = ?
+                )
                 """,
-                (filename, file_hash, now, len(rows)),
+                (filename, file_hash, snapshot_hash, now, len(rows), file_hash),
             )
         return len(rows)
 
@@ -400,6 +414,15 @@ class Database:
             row = conn.execute(
                 "SELECT 1 FROM import_history WHERE file_hash = ? LIMIT 1",
                 (file_hash,),
+            ).fetchone()
+        return row is not None
+
+    def has_referral_snapshot_hash(self, snapshot_hash: str) -> bool:
+        """Return whether these daily metrics have already updated referrals."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM import_history WHERE snapshot_hash = ? LIMIT 1",
+                (snapshot_hash,),
             ).fetchone()
         return row is not None
 
