@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import ImageDraw
 
 from config import TIER_THRESHOLDS
-from database import Creator, Referral
+from database import Creator, Referral, next_referral_reward, referral_reward_for_diamonds
 from dashboard.style import (
     COLORS,
     canvas,
@@ -129,16 +129,23 @@ def _referral_card(draw: ImageDraw.ImageDraw, x: int, y: int, referral: Referral
     card_w = 408
     rounded(draw, (x, y, x + card_w, y + 154), 10, COLORS["panel"], COLORS["border"])
     text(draw, (x + 18, y + 17), fit_text(referral.creator_name, 250, 18, True), 18, COLORS["text"], True)
-    text(draw, (x + card_w - 18, y + 19), f"TIER {referral.current_tier}", 11, league_color(referral.current_tier), True, "ra")
+    _, reward = referral_reward_for_diamonds(referral.diamonds)
+    reward_label = f"£{reward} REWARD" if reward else "NO REWARD YET"
+    reward_color = COLORS["green"] if reward else COLORS["muted"]
+    text(draw, (x + card_w - 18, y + 19), reward_label, 11, reward_color, True, "ra")
     text(draw, (x + 18, y + 49), f"{format_int(referral.diamonds)} diamonds", 16, COLORS["gold"], True)
     text(draw, (x + 210, y + 49), format_hours(referral.hours), 16, COLORS["blue"], True)
     text(draw, (x + 18, y + 80), f"{referral.days_remaining} days remaining", 12, COLORS["subtext"], True)
     progress = max(0.0, min(1.0, 1 - referral.days_remaining / 30))
     rounded(draw, (x + 18, y + 105, x + card_w - 18, y + 119), 7, "#20242A")
     rounded(draw, (x + 18, y + 105, x + 18 + int((card_w - 36) * progress), y + 119), 7, COLORS["green"])
-    tier_label, next_label, next_threshold, tier_pct = _next_tier_progress(referral.diamonds)
-    target = f"{format_int(next_threshold)}" if next_threshold else "MAX"
-    text(draw, (x + 18, y + 131), f"{tier_label} → {next_label}  ·  {tier_pct:.0f}% ({target})", 11, COLORS["muted"])
+    next_reward = next_referral_reward(referral.diamonds)
+    if next_reward is None:
+        reward_progress = "Top referral reward reached: £65"
+    else:
+        next_tier, threshold, payout = next_reward
+        reward_progress = f"Next: Tier {next_tier} — £{payout} at {format_int(threshold)} diamonds"
+    text(draw, (x + 18, y + 131), reward_progress, 11, COLORS["muted"])
 
 
 def _active_referrals_panel(draw: ImageDraw.ImageDraw, referrals: list[Referral]) -> None:

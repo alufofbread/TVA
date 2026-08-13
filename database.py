@@ -10,6 +10,35 @@ from typing import Iterable, Iterator
 from config import DATABASE_PATH, ensure_directories
 
 
+REFERRAL_REWARD_TIERS = (
+    (15_000, 5),
+    (30_000, 8),
+    (50_000, 11),
+    (100_000, 15),
+    (200_000, 30),
+    (500_000, 65),
+)
+
+
+def referral_reward_for_diamonds(diamonds: int) -> tuple[int, int]:
+    """Return the highest referral reward tier and its GBP payout."""
+    tier, reward = 0, 0
+    for index, (threshold, payout) in enumerate(REFERRAL_REWARD_TIERS, start=1):
+        if diamonds < threshold:
+            break
+        tier, reward = index, payout
+    return tier, reward
+
+
+def next_referral_reward(diamonds: int) -> tuple[int, int, int] | None:
+    """Return the next referral tier as (tier, diamond target, GBP payout)."""
+    current_tier, _ = referral_reward_for_diamonds(diamonds)
+    if current_tier >= len(REFERRAL_REWARD_TIERS):
+        return None
+    threshold, payout = REFERRAL_REWARD_TIERS[current_tier]
+    return current_tier + 1, threshold, payout
+
+
 @dataclass(slots=True)
 class Creator:
     creator_id: str
@@ -120,7 +149,7 @@ class Database:
                     last_diamonds INTEGER NOT NULL DEFAULT 0,
                     last_hours REAL NOT NULL DEFAULT 0,
                     days_remaining INTEGER NOT NULL DEFAULT 30,
-                    current_tier INTEGER NOT NULL DEFAULT 1,
+                    current_tier INTEGER NOT NULL DEFAULT 0,
                     status TEXT NOT NULL DEFAULT 'Active',
                     final_reward TEXT NOT NULL DEFAULT ''
                 )
@@ -330,7 +359,8 @@ class Database:
                 days_remaining = max(0, (end_date - observed_on).days)
                 completed = observed_on >= end_date
                 status = "Completed" if completed else "Active"
-                final_reward = f"Tier {current_tier}" if completed else ""
+                _, reward = referral_reward_for_diamonds(diamonds)
+                final_reward = f"£{reward}" if completed and reward else ""
                 conn.execute(
                     """
                     UPDATE referrals SET creator_id=?, creator_name=?, diamonds=?, hours=?,
@@ -344,8 +374,8 @@ class Database:
     @staticmethod
     def _tier_for_diamonds(diamonds: int) -> int:
         # Kept here to make stored referrals independent of the current snapshot table.
-        thresholds = (0, 100_000, 200_000, 300_000, 500_000, 700_000, 1_000_000, 1_600_000, 2_500_000, 5_000_000)
-        return max(index + 1 for index, threshold in enumerate(thresholds) if diamonds >= threshold)
+        tier, _ = referral_reward_for_diamonds(diamonds)
+        return tier
 
     def get_referrals_for_referrer(self, referrer_id: str, include_completed: bool = False) -> list[Referral]:
         # A dashboard opened after day 30 must not keep showing an expired referral

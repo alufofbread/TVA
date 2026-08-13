@@ -107,7 +107,16 @@ If no avatar URL is provided, the bot tries to fetch the TikTok profile image us
 
 ## Referrals
 
-Use `/add-referral` with the referrer's name and the referred creator. The bot uses the referred creator's imported `Join time` as the start date, then sets the end date to 30 days later. It shows active referrals in a new right-hand column on the referrer's stats dashboard. Referral diamonds and live hours are stored separately from the monthly snapshot: each new import adds only the creator's increase, and a lower value is treated as the next month's reset. Completed referrals are locked and retained in the database.
+Use `/add-referral` with the referrer's name and the referred creator. The bot uses the referred creator's imported `Join time` as the start date, then sets the end date to 30 days later. It shows active referrals in a new right-hand column on the referrer's stats dashboard. Each card shows the referrer's earned reward and the next reward milestone based on that referred creator's tracked diamonds. Referral diamonds and live hours are stored separately from the monthly snapshot: each new import adds only the creator's increase, and a lower value is treated as the next month's reset. Completed referrals are locked and retain their earned reward in the database.
+
+### Referral rewards
+
+- Tier 1: 15,000 diamonds — £5
+- Tier 2: 30,000 diamonds — £8
+- Tier 3: 50,000 diamonds — £11
+- Tier 4: 100,000 diamonds — £15
+- Tier 5: 200,000 diamonds — £30
+- Tier 6: 500,000 diamonds — £65
 
 ## Tier System
 
