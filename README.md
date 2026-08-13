@@ -13,6 +13,7 @@ Production-ready Discord slash-command bot for importing TikTok creator performa
 - `/set-channel creator_name channel` stores a creator's stats channel for automatic updates.
 - `/profile-import creator_name image` manually sets a creator profile picture.
 - `/add-referral referrer_name referred_creator` starts a 30-day referral tracker from the referred creator's imported Join time.
+- `/all-referrals` returns an image of all active referral links and the reward currently owed to each referrer.
 - SQLite stores the current monthly creator snapshot.
 - Flexible spreadsheet column detection with clear import errors.
 - Tier, ranking, and incentive status recalculation after each import.

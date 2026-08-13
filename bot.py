@@ -13,6 +13,7 @@ from avatars import cache_avatar_bytes
 from config import BOT_TOKEN, DATABASE_PATH, DATA_DIR, ENV_PATH, GUILD_ID, UPLOAD_DIR, ensure_directories
 from dashboard.creator_stats import render_creator_stats
 from dashboard.leaderboard import render_leaderboard
+from dashboard.referrals import render_all_referrals
 from dashboard.trends import render_creator_trends
 from database import Database
 from importer import ImportErrorWithContext, import_spreadsheet
@@ -349,6 +350,11 @@ async def help_command(interaction: discord.Interaction) -> None:
         inline=False,
     )
     embed.add_field(
+        name="/all-referrals",
+        value="Generate a dashboard of current referral links and rewards owed.",
+        inline=False,
+    )
+    embed.add_field(
         name="/profile-import",
         value="Manually upload a creator profile picture.",
         inline=False,
@@ -506,6 +512,18 @@ async def stats_command(interaction: discord.Interaction, creator_name: str) -> 
 @stats_command.autocomplete("creator_name")
 async def stats_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     return creator_autocomplete(current)
+
+
+@bot.tree.command(name="all-referrals", description="Generate a dashboard of all active referrals and rewards owed.")
+@app_commands.check(bot_controller_check)
+async def all_referrals_command(interaction: discord.Interaction) -> None:
+    await interaction.response.defer(thinking=True)
+    referrals = bot.database.get_active_referrals()
+    output_path = Path(__file__).resolve().parent / "data" / "all_referrals.png"
+    await asyncio.to_thread(render_all_referrals, referrals, output_path)
+    await interaction.followup.send(
+        file=discord.File(output_path, filename="team-vextal-active-referrals.png"),
+    )
 
 
 @bot.tree.command(name="add-referral", description="Start tracking a referral from the referred creator's join date.")

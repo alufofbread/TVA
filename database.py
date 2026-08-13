@@ -393,6 +393,21 @@ class Database:
             rows = conn.execute(query, (referrer_id,)).fetchall()
         return [Referral(**dict(row)) for row in rows]
 
+    def get_active_referrals(self) -> list[Referral]:
+        """Return every current referral after refreshing its tracked progress."""
+        with self.connect() as conn:
+            creators = [dict(row) for row in conn.execute("SELECT * FROM creators").fetchall()]
+        self.update_referrals_from_snapshot(creators, date.today())
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM referrals
+                WHERE status = 'Active'
+                ORDER BY lower(referrer_name), end_date ASC, lower(creator_name), id ASC
+                """
+            ).fetchall()
+        return [Referral(**dict(row)) for row in rows]
+
     def update_creator_avatar(self, creator_id: str, avatar_url: str, avatar_path: str) -> None:
         now = datetime.now(timezone.utc).isoformat()
         with self.connect() as conn:
