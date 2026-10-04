@@ -167,3 +167,22 @@ vextal/
 │   └── uploads/
 └── requirements.txt
 ```
+
+## Command registration diagnostics
+
+Set `DISCORD_GUILD_ID=1468015338221207656` in Railway. Commands are defined
+in bot.py before main runs, using one tree and no cogs/extensions. Startup logs
+local global/guild command counts and names, copies global definitions to this
+guild, logs the actual guild-sync response and fetches Discord registration back
+for verification. Wrong guild IDs and registration failures stop startup.
+
+Expect `Loaded commands locally: N [...]`, `Synced N commands to guild
+1468015338221207656: [...]`, `Verified commands registered on Discord: N [...]`
+and `Logged in as Team Vextal Analytics#9036 (ID: ...)` (actual Discord bot name).
+Counts depend on the commands present in the deployed revision, not a fixed eight.
+
+Install/reauthorize this token's application with both `bot` and
+`applications.commands` scopes using the URL printed during startup. The live
+installation scopes cannot be confirmed from Gateway connection logs alone.
+Check member/channel Use Application Commands and server integration permissions.
+Local registration tests: `python -m unittest test_command_startup`.

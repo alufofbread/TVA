@@ -93,29 +93,9 @@ class TeamVextalBot(discord.Client):
         self.database = Database()
 
     async def setup_hook(self) -> None:
-        guild = get_required_guild()
-        self.tree.copy_global_to(guild=guild)
-        print(f"Syncing slash commands to Discord server {GUILD_ID}...", flush=True)
-        try:
-            await asyncio.wait_for(self.tree.sync(guild=guild), timeout=COMMAND_SYNC_TIMEOUT_SECONDS)
-            print("Slash commands synced.", flush=True)
-        except asyncio.TimeoutError:
-            print(
-                f"Slash command sync timed out after {COMMAND_SYNC_TIMEOUT_SECONDS}s. "
-                "The bot will still connect, but slash command updates may not appear until the next restart. "
-                "Check the guild ID, bot invite scopes, and Discord connectivity if this keeps happening.",
-                flush=True,
-            )
-        except discord.Forbidden as exc:
-            print(
-                f"Missing Discord access for server {GUILD_ID}. Make sure DISCORD_GUILD_ID in {ENV_PATH} "
-                "is the server ID, the bot has been invited to that server, and the invite used both "
-                "'bot' and 'applications.commands' scopes.",
-                flush=True,
-            )
-            print(f"Discord sync error: {exc}", flush=True)
-        except discord.HTTPException as exc:
-            print(f"Slash command sync failed, but the bot will still connect: {exc}", flush=True)
+        from command_startup import register_commands
+        await register_commands(self, get_required_guild(), COMMAND_SYNC_TIMEOUT_SECONDS)
+
 
 bot = TeamVextalBot()
 
@@ -279,7 +259,7 @@ async def send_saved_leaderboards() -> tuple[int, list[str]]:
 
 @bot.event
 async def on_ready() -> None:
-    print(f"Team Vextal Analytics signed in as {bot.user}", flush=True)
+    print(f"Logged in as {bot.user} (ID: {bot.user.id}); configured guild: {GUILD_ID}", flush=True)
 
 
 @bot.event
