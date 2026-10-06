@@ -13,7 +13,7 @@ from dashboard.style import (
     canvas,
     circular_avatar,
     downsample,
-    draw_fasttrack_logo,
+    draw_aether_logo,
     format_hours,
     format_int,
     incentive_label,
@@ -174,7 +174,7 @@ def _tier_border_legend(draw: ImageDraw.ImageDraw, y: int) -> None:
         text(draw, (x + 80, y + 15), label, 12, color, True, "mm")
 
 
-def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_path: Path) -> Path:
+def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_path: Path, report_date: date | None = None) -> Path:
     visible = creators[:15]
     row_h = 78
     height = max(995, 326 + (len(visible) + 1) * row_h + 138)
@@ -182,13 +182,13 @@ def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_
     _soft_backdrop(draw, 1200, height)
 
     rounded(draw, (24, 22, 1176, 118), 16, "#080A0D", "#20252B")
-    text(draw, (48, 44), "VEXTAL ANALYTICS", 12, COLORS["muted"], True)
+    text(draw, (48, 44), "CREATOR NETWORK", 12, COLORS["muted"], True)
     text(draw, (600, 35), BRAND_NAME, 34, COLORS["text"], True, "ma")
-    draw_fasttrack_logo(image, draw, 1060, 30, 82, 82, framed=False)
+    draw_aether_logo(image, draw, 1060, 30, 82, 82, framed=False)
     line(draw, (48, 96, 914, 96), "#1A1F25", 1)
 
     text(draw, (36, 146), "MONTH TO DATE", 13, COLORS["gold"], True)
-    progress = _month_progress()
+    progress = _month_progress(report_date)
     rounded(draw, (168, 138, 252, 164), 13, "#1E1A0B", "#4A3B11")
     text(draw, (210, 144), progress, 12, COLORS["gold"], True, "ma")
     text(draw, (270, 146), "Live agency leaderboard", 15, COLORS["muted"])

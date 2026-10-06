@@ -5,6 +5,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from config import BASE_DIR
+from branding import BLUE, PINK
 
 ROOT = Path(__file__).resolve().parent
 
@@ -46,9 +47,10 @@ COLORS = {
     "green": "#24D366",
     "yellow": "#FFB020",
     "red": "#FF4D5E",
-    "blue": "#257BFF",
+    "blue": BLUE,
     "cyan": "#00B8D9",
-    "purple": "#8B5CF6",
+    "purple": PINK,
+    "pink": PINK,
 }
 
 
@@ -91,45 +93,9 @@ def line(draw: ImageDraw.ImageDraw, xy: tuple[int, int, int, int], fill: str, wi
     draw.line(tuple(v * 2 for v in xy), fill=fill, width=width * 2)
 
 
-def fasttrack_logo_path() -> Path | None:
-    for logo_path in (ROOT / "assets" / "fasttrack_logo.png", ROOT / "assets" / "logo.png"):
-        if not logo_path.exists():
-            continue
-        try:
-            with Image.open(logo_path) as source:
-                if source.width > 1 and source.height > 1:
-                    return logo_path
-        except OSError:
-            continue
-    return None
-
-
-def draw_fasttrack_logo(
-    image: Image.Image,
-    draw: ImageDraw.ImageDraw,
-    x: int,
-    y: int,
-    w: int,
-    h: int,
-    framed: bool = True,
-) -> None:
-    if framed:
-        rounded(draw, (x, y, x + w, y + h), 10, "#080A0D", COLORS["border"])
-
-    logo_path = fasttrack_logo_path()
-    if logo_path:
-        with Image.open(logo_path) as source:
-            padding = 10 if min(w, h) <= 90 else 14
-            logo = ImageOps.contain(source.convert("RGBA"), (w * 2 - padding * 2, h * 2 - padding * 2), Image.Resampling.LANCZOS)
-        paste_x = (x * 2) + ((w * 2 - logo.width) // 2)
-        paste_y = (y * 2) + ((h * 2 - logo.height) // 2)
-        image.paste(logo, (paste_x, paste_y), logo)
-        return
-
-    title_size = 17 if w >= 140 else 12
-    sub_size = 11 if w >= 140 else 8
-    text(draw, (x + w // 2, y + h // 2 - 8), "FASTTRACK", title_size, COLORS["gold"], True, "ma")
-    text(draw, (x + w // 2, y + h // 2 + 14), "AGENCY", sub_size, COLORS["subtext"], True, "ma")
+def draw_aether_logo(image, draw, x, y, w, h, framed=True):
+    from branding import draw_brand
+    draw_brand(image, draw, x, y, w, h, framed)
 
 
 def text_width(value: str, size: int, bold: bool = False) -> int:
@@ -225,7 +191,7 @@ def circular_avatar(
 
     initials = "".join(part[:1] for part in name.replace(".", " ").replace("_", " ").split()[:2]).upper()
     draw.ellipse(box, fill="#171A1F", outline=accent, width=3 * scale)
-    text(draw, (x + size // 2, y + size // 2 - 6), initials[:2] or "TV", max(12, size // 3), COLORS["text"], True, "ma")
+    text(draw, (x + size // 2, y + size // 2 - 6), initials[:2] or "AC", max(12, size // 3), COLORS["text"], True, "ma")
     if badge_text:
         _avatar_badge(draw, x, y, size, badge_text, accent)
 

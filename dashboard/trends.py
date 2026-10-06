@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from branding import BRAND_SHORT
 
 from PIL import ImageDraw
 
@@ -68,7 +69,15 @@ def _period_matches_report_month(path: Path, report_date: date) -> bool:
     return any(value.year == report_date.year and value.month == report_date.month for value in period_dates)
 
 
-def load_creator_daily_trends(creator: Creator, upload_dir: Path = UPLOAD_DIR) -> list[TrendPoint]:
+def load_creator_daily_trends(creator: Creator, upload_dir: Path = UPLOAD_DIR, database=None) -> list[TrendPoint]:
+    from database import Database
+    from history import daily_points
+    database = database or Database()
+    history = database.creator_history(creator.creator_id)
+    if history:
+        month = history[-1]['report_date'][:7]
+        return [TrendPoint(date.fromisoformat(row['report_date']), row['diamonds'], row['hours'], row['new_followers'])
+                for row in daily_points(history) if row['report_date'].startswith(month)]
     latest_date = max(
         (report_date for path in upload_dir.glob("*.xls*") if (report_date := _report_data_date(path)) is not None),
         default=None,
@@ -229,12 +238,13 @@ def _chart_card(
     text(draw, (x + w - 28, y + 40), "PREV DAY", 9, COLORS["muted"], True, "ra")
 
 
-def render_creator_trends(creator: Creator, output_path: Path) -> Path:
-    points = load_creator_daily_trends(creator)
+def render_creator_trends(creator: Creator, output_path: Path, points: list[TrendPoint] | None = None) -> Path:
+    if points is None:
+        points = load_creator_daily_trends(creator)
     image, draw = canvas(760, 1100)
 
     rounded(draw, (24, 22, 736, 138), 12, COLORS["panel_alt"], COLORS["border"])
-    text(draw, (42, 42), "TEAM VEXTAL", 13, COLORS["muted"], True)
+    text(draw, (42, 42), BRAND_SHORT, 13, COLORS["muted"], True)
     circular_avatar(image, draw, 42, 64, 62, creator.creator_name, creator.rank, creator.avatar_path)
     text(draw, (124, 87), fit_text(creator.creator_name, 570, 34, True), 34, COLORS["text"], True, "lm")
     text(draw, (124, 116), "Month-to-date trends", 15, COLORS["subtext"], False, "lm")

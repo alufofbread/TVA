@@ -1,172 +1,68 @@
-# Team Vextal Analytics
+# Aether Creator Network
 
-Production-ready Discord slash-command bot for importing TikTok creator performance spreadsheets and generating SaaS-style PNG dashboards.
+Aether's Discord automation service, extending the existing Python bot, spreadsheet importer, SQLite database, dashboards and referral system.
 
-## Features
+## Daily workflow
 
-- `/import` accepts `.xlsx`, `.xls`, or `.csv` spreadsheet attachments.
-- `/import-non-auto` accepts a spreadsheet but does not send creator stats or leaderboards.
-- `/leaderboard` returns a dark Team Vextal leaderboard PNG.
-- `/set-leaderboard-channel leaderboard_type channel` stores the daily or monthly leaderboard channel.
-- `/stats creator_name` returns an individual creator analytics PNG as a manual fallback.
-- `/stats_all` sends all saved creator stats dashboards to their `/set-channel` channels.
-- `/set-channel creator_name channel` stores a creator's stats channel for automatic updates.
-- `/profile-import creator_name image` manually sets a creator profile picture.
-- `/add-referral referrer_name referred_creator` starts a 30-day referral tracker from the referred creator's imported Join time.
-- `/all-referrals` returns an image of all active referral links and the reward currently owed to each referrer.
-- SQLite stores the current monthly creator snapshot.
-- Flexible spreadsheet column detection with clear import errors.
-- Tier, ranking, and incentive status recalculation after each import.
-- After `/import`, the bot sends each mapped creator their own stats and trends graphs.
-- When `/leaderboard` runs, the bot sends the leaderboard to the saved daily and monthly channels.
+Upload the daily TikTok report once with `/import`. The bot validates and imports the report, saves historical snapshots, updates mapped creator channels, edits the single global month-to-date leaderboard, records achievements, publishes any enabled achievement digest, and sends an admin summary. A creator without a channel still imports normally and appears in the unmapped list. One failed render or Discord send does not stop other creators or the leaderboard.
 
-## Setup
+Only one import/delivery pipeline runs at a time. A second import receives a busy response. Manual dashboard updates share the lock. Run **one bot process / one Railway replica** against the database; in-process locks are not a distributed queue.
 
-```powershell
-cd vextal
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
+## Setup and commands
+
+Use Python 3.12+:
+
+```sh
+python -m venv .venv
+# Activate .venv using your shell, then:
 pip install -r requirements.txt
 python bot.py
 ```
 
-Create a local `.env` file in the `vextal` folder:
+Copy `.env.example` to `.env` and set `DISCORD_TOKEN` and `DISCORD_GUILD_ID`. Never commit `.env`. Commands require Discord Administrator permission or the existing `bot controller` role. Channel configuration also requires Manage Channels on the invoking member.
 
-```env
-DISCORD_TOKEN=your-reset-bot-token
-DISCORD_GUILD_ID=your-server-id
-```
+Configure once:
 
-Then start the bot:
+- `/set-channel creator_name channel`: retain the existing creator-to-channel mappings. Creator channels should already be private, with member and manager/admin permission overwrites. The bot never creates a role per creator or changes channel permissions.
+- `/set-leaderboard-channel channel`: one global month-to-date leaderboard destination.
+- `/set-automation-channel purpose channel`: `leaderboard`, `wins`, `events`, `campaigns`, `announcements`, or `logs`.
+- `/aether-status`: latest successful database import, report date, creator/mapped counts, full unmapped list, import delivery state, all channel destinations, saved leaderboard state and website receiver/recent request status.
 
-```powershell
-python bot.py
-```
+Other retained commands: `/stats`, `/stats_all`, `/leaderboard`, `/profile-import`, `/add-referral`, `/remove-referral`, `/all-referrals`, `/announce`, `/help`, and `/ping`. `/leaderboard` edits the configured global message; it no longer posts a second copy into the command channel. `/announce` retains explicit mentions and a chosen destination. Automated messages disable mentions.
 
-Both `DISCORD_TOKEN` and `DISCORD_GUILD_ID` are required.
+`/import-non-auto` imports data/history and detects achievements without publishing dashboards or marking new achievements for public delivery. It still logs an admin summary. `/import` of the same snapshot can retry dashboard delivery; it does not retroactively enable announcements suppressed by a non-auto import.
 
-Only members with Discord Administrator permission or the `bot controller` role can use bot commands.
+Invite with `bot` and `applications.commands` scopes. The bot needs **View Channel, Send Messages, Attach Files, Embed Links, and Read Message History** in its configured channels. Read Message History is required to recover an uncertain send without making a duplicate. Message Content privileged intent is not required for this slash-command service. The bot edits/deletes its own messages; Manage Messages and Manage Channels are not required for those operations.
 
-## Railway Deployment
+## Reports and history
 
-Deploy the `vextal` folder as the Railway service root.
+Supported formats: `.xlsx`, `.xls`, `.csv`, up to 20 MB. Existing flexible column/header detection and duplicate-row aggregation remain. Required metrics are creator name, diamonds, hours, valid days and battles; optional fields include Creator ID, new followers, Join time, Diamonds last month and avatar URL.
 
-1. Push this project to GitHub.
-2. In Railway, create a new project from the GitHub repo.
-3. Set the service root directory to `vextal` if Railway asks for one.
-4. Add these service variables:
+The report effective date comes from `Data period`, falling back to dated filenames such as `Creator data 2026_09_10.xlsx`. If neither exists, pass `report_date:2026-09-10`. An explicit date must agree with dated report contents. Undated and future reports are rejected rather than silently using upload day. Reports older than the latest imported report are rejected to prevent rollback and incorrect referral deltas. Import historical files chronologically into an empty test database if history backfill is needed; the live importer is not a backfill tool.
 
-```env
-DISCORD_TOKEN=your-reset-bot-token
-DISCORD_GUILD_ID=your-server-id
-```
+SQLite stores an import record and a per-creator snapshot for each effective date, including rankings, tier, metrics and incentive status. CSV and Excel both contribute. Current snapshot, referrals, import metadata, history and achievements commit in one transaction. Corrected reports for the latest date replace that date's historical snapshot. Re-uploading a known superseded version is rejected; equivalent current uploads reuse the existing import record. Corrected historical public announcements are not automatically retracted.
 
-5. Add a Railway Volume to the bot service so imports, avatars, and the SQLite database persist between redeploys.
-6. Mount the volume anywhere convenient, for example `/data`. The app automatically uses Railway's `RAILWAY_VOLUME_MOUNT_PATH`.
-7. Deploy. The included `railway.json` starts the bot with `python bot.py`.
+Daily trends and PBs use differences between consecutive dated month-to-date snapshots. Day one of a month is a daily value itself. Missing dates and downward corrections are gaps, not zero days or invented daily PBs. Database history is preferred; the existing Excel-file trend fallback remains for pre-migration data without snapshots. Old uploaded reports are not silently backfilled during migration.
 
-After it is live, use `/ping` in Discord to confirm the hosted bot is online. Your partner can then use `/import` with the daily spreadsheet without your PC being on.
+Stored leagues retain the existing rule: use **Diamonds last month** where supplied; otherwise preserve an existing creator's tier. The dashboard's current-month tier progress remains distinct. Referral rewards/thresholds remain unchanged; updates and baseline creation use the report effective date. Dashboard reads no longer recalculate referral totals using the wall-clock date. Referral status reflects the latest imported report.
 
-If the bot is hosted on Railway without a persistent Volume, it will refuse to start. This prevents imports from being saved to temporary container storage and disappearing when Railway restarts or redeploys the service.
+## Achievements and public noise control
 
-## Invite URL
+Detection/history is always enabled for:
 
-In the Discord Developer Portal, open **OAuth2 > URL Generator**.
+- Daily PBs in diamonds, LIVE hours and new followers, using reliable daily intervals.
+- Monthly diamond milestones, configurable through `DIAMOND_MILESTONES`.
+- Tier/league changes, rank movement within a month, and completed monthly incentives.
 
-Select scopes:
+`ANNOUNCE_ACHIEVEMENTS` is empty by default. To enable selected public updates, set for example `ANNOUNCE_ACHIEVEMENTS=milestone,league,incentive`, configure the `wins` channel, and restart. Supported values: `pb,milestone,league,incentive,rank`. The first historical observation establishes a quiet baseline. One digest is posted per import (split only for Discord embed limits), with persistent message IDs and achievement keys preventing repeated announcements. Changes to announcement settings affect future detections, not old suppressed records.
 
-- `bot`
-- `applications.commands`
+## Website integration
 
-Select bot permissions:
+### Application onboarding
 
-- `Send Messages`
-- `Attach Files`
-- `Use Slash Commands`
-- `Manage Channels` if admins should use `/set-channel`
+The existing leased queue includes creator manager choice and a manual TikTok network gate. Approval sends a private choice email without creating accounts or changing roles. The creator confirms their manager, receives that manager's scout link and cannot change the choice themselves. Only explicit admin network confirmation permits Discord verification, Pending, provisioning and setup email. Creator replaces Pending after password setup; dashboard access is enabled after Discord sync.
 
-Open the generated URL and invite the bot to the same server as `DISCORD_GUILD_ID`.
-
-If startup fails with `403 Forbidden: Missing Access`, the bot is not installed in that server or was invited without the `applications.commands` scope.
-
-## Expected Spreadsheet Columns
-
-The importer accepts common aliases:
-
-- Creator ID: `creator id`, `user id`, `tiktok id`
-- Creator: `creator`, `creator name`, `creator's username`, `username`, `tiktok username`, `host`
-- Diamonds: `diamonds`, `total diamonds`, `received diamonds`, `points`
-- Hours: `hours`, `live hours`, `LIVE duration`, `duration`, `valid hours`
-- Days: `days`, `valid days`, `Valid go LIVE days`, `active days`
-- Battles: `battles`, `total battles`, `pk battles`, `Matches`
-- New Followers: `new followers`
-- Data Period: `Data period`, `period`, `reporting period`
-- Avatar URL (optional): `avatar url`, `profile picture url`, `profile image url`
-
-Duplicate creator rows are grouped by creator name and added together so the stored creator snapshot is the monthly total. The report month is taken from `Data period` or from filenames like `Creator data 2026_06_02 14_59 UTC+0 (1)`.
-If no avatar URL is provided, the bot tries to fetch the TikTok profile image using the creator ID as the TikTok username, then falls back to initials if TikTok blocks or omits the image.
-
-## Referrals
-
-Use `/add-referral` with the referrer's name and the referred creator. The bot uses the referred creator's imported `Join time` as the start date, then sets the end date to 30 days later. It shows active referrals in a new right-hand column on the referrer's stats dashboard. Each card shows the referrer's earned reward and the next reward milestone based on that referred creator's tracked diamonds. Referral diamonds and live hours are stored separately from the monthly snapshot: each new import adds only the creator's increase, and a lower value is treated as the next month's reset. Completed referrals are locked and retain their earned reward in the database.
-
-### Referral rewards
-
-- Tier 1: 15,000 diamonds — £5
-- Tier 2: 30,000 diamonds — £8
-- Tier 3: 50,000 diamonds — £11
-- Tier 4: 100,000 diamonds — £15
-- Tier 5: 200,000 diamonds — £30
-- Tier 6: 500,000 diamonds — £65
-
-## Tier System
-
-- Tier 1: 0
-- Tier 2: 100,000
-- Tier 3: 200,000
-- Tier 4: 300,000
-- Tier 5: 500,000
-- Tier 6: 700,000
-- Tier 7: 1,000,000
-- Tier 8: 1,600,000
-- Tier 9: 2,500,000
-- Tier 10: 5,000,000
-
-## Incentive System
-
-Achieved requires:
-
-- Diamonds >= 250,000
-- Valid Days >= 22
-- Live Hours >= 80
-
-Statuses:
-
-- `ACHIEVED`: all targets complete.
-- `IN_PROGRESS`: target remains possible.
-- `NOT_ACHIEVABLE`: valid days can no longer reach 22 in the current month.
-
-## Project Structure
-
-```text
-vextal/
-├── bot.py
-├── database.py
-├── importer.py
-├── config.py
-├── dashboard/
-│   ├── leaderboard.py
-│   ├── creator_stats.py
-│   ├── style.py
-│   └── assets/
-│       ├── fonts/
-│       ├── logo.png
-│       └── templates/
-├── data/
-│   ├── database.db
-│   └── uploads/
-└── requirements.txt
-```
+Configure the existing Supabase credentials and `ONBOARDING_ENABLED`, `ONBOARDING_PENDING_ROLE_ID`, `ONBOARDING_CREATOR_ROLE_ID`, `RESEND_API_KEY`, `ONBOARDING_EMAIL_FROM`. Keep onboarding disabled until migrations through 010, both website setup pages, manager scout links and this bot are deployed. See `../../website/ONBOARDING_SETUP.md`. Clicks never imply TikTok acceptance.
 
 ## Command registration diagnostics
 

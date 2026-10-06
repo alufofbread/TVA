@@ -1,1 +1,1 @@
-"""Dashboard renderers for Team Vextal Analytics."""
+"""Dashboard renderers for Aether Creator Network."""

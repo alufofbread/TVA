@@ -4,6 +4,7 @@ import calendar
 import hashlib
 import json
 import re
+import math
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -29,9 +30,12 @@ class ImportResult:
     total_diamonds: int
     total_battles: int
     duplicate: bool
+    report_date: date
+    import_id: int
 
 
 COLUMN_ALIASES = {
+    "manager": {"creator network manager", "manager", "manager username", "manager tiktok"},
     "creator_id": {
         "creator id",
         "creatorid",
@@ -56,6 +60,7 @@ COLUMN_ALIASES = {
     "days": {"days", "valid days", "live days", "active days", "valid go live days", "valid go live days this month"},
     "battles": {"battles", "battle", "total battles", "pk battles", "matches", "match count"},
     "new_followers": {"new followers"},
+    "live_streams": {"live streams"},
     "data_period": {"data period", "period", "date period", "reporting period"},
     "join_date": {"join time", "join date", "joined at", "date joined"},
     "avatar_url": {
@@ -85,11 +90,10 @@ def parse_number(value: Any) -> float:
     text = str(value).strip()
     if not text:
         return 0
-    hours_match = re.match(r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?", text.lower())
-    if hours_match and ("h" in text.lower() or "m" in text.lower()):
-        hours = float(hours_match.group(1) or 0)
-        minutes = float(hours_match.group(2) or 0)
-        return hours + minutes / 60
+    hours_match = re.fullmatch(r"\s*(?:(\d+)\s*h\s*)?(?:(\d+)\s*m\s*)?(?:(\d+)\s*s\s*)?", text.lower())
+    if hours_match and any(hours_match.groups()):
+        hours,minutes,seconds=(float(part or 0) for part in hours_match.groups())
+        return hours + minutes / 60 + seconds / 3600
     cleaned = re.sub(r"[^0-9.\-]", "", text)
     return float(cleaned) if cleaned not in {"", "-", "."} else 0
 
@@ -259,7 +263,7 @@ def _creator_id(name: str) -> str:
     return clean or hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
 
 
-def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, cache_avatars: bool = True) -> tuple[list[dict], str]:
+def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, cache_avatars: bool = True, with_report_date: bool = False):
     df = _read_excel(path)
     columns = _detect_columns(df)
     df = df[list(columns.values())].rename(columns={v: k for k, v in columns.items()})
@@ -269,14 +273,22 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
     if df.empty:
         raise ImportErrorWithContext("No creator records were found in the spreadsheet.")
 
+    requested_date = report_date
     filename_date = parse_report_date_from_filename(path)
     if "data_period" in df.columns:
         df["_period_end"] = pd.to_datetime(df["data_period"].apply(parse_period_end), errors="coerce")
-        if report_date is None:
-            latest_period = df["_period_end"].dropna().max()
-            report_date = (latest_period.date() if not pd.isna(latest_period) else None) or filename_date
+        latest_period = df['_period_end'].dropna().max()
+        detected_date = (latest_period.date() if not pd.isna(latest_period) else None) or filename_date
+        if requested_date and detected_date and requested_date != detected_date:
+            raise ImportErrorWithContext('report_date conflicts with the effective date in the report.')
+        report_date = requested_date or detected_date
     elif report_date is None:
         report_date = filename_date
+
+    if report_date is None:
+        raise ImportErrorWithContext("Cannot determine report date. Include Data period, use a dated Creator data filename, or supply report_date (YYYY-MM-DD).")
+    if report_date > date.today():
+        raise ImportErrorWithContext("Report effective date cannot be in the future.")
 
     if report_date is not None and "_period_end" in df.columns:
         month_rows = df[
@@ -300,6 +312,8 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
     else:
         df["join_date"] = None
     has_previous_month_diamonds = "previous_month_diamonds" in df.columns
+    df['_previous_month_known'] = (df['previous_month_diamonds'].apply(lambda value: clean_optional_text(value) not in ('','-'))
+                                   if has_previous_month_diamonds else False)
     if not has_previous_month_diamonds:
         df["previous_month_diamonds"] = df["diamonds"]
 
@@ -323,6 +337,8 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
             "new_followers",
             "previous_month_diamonds",
             "join_date",
+            "manager",
+            "live_streams",
         )
         if column in df.columns
     ]
@@ -348,6 +364,9 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
             "previous_month_diamonds": latest["previous_month_diamonds"],
             "avatar_url": latest.get("avatar_url", ""),
             "join_date": latest.get("join_date"),
+            "manager": clean_optional_text(latest.get("manager", "")),
+            "previous_month_known": bool(latest['_previous_month_known']),
+            "live_streams": sum(parse_number(value) for value in group['live_streams']) if 'live_streams' in group else None,
         }
         grouped_rows.append(monthly)
 
@@ -374,13 +393,16 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
             {
                 "creator_id": creator_id,
                 "creator_name": row["creator_name"],
+                "manager": clean_optional_text(row.get("manager", "")),
+                "live_seconds": round(float(row['hours'])*3600),
+                "live_streams": int(round(row['live_streams'])) if row['live_streams'] is not None and not pd.isna(row['live_streams']) else None,
                 "diamonds": diamonds,
                 "hours": hours,
                 "days": days,
                 "battles": battles,
                 "new_followers": new_followers,
-                "tier": get_tier(previous_month_diamonds),
-                "preserve_existing_tier": not has_previous_month_diamonds,
+                "tier": get_tier(previous_month_diamonds if row['previous_month_known'] else diamonds),
+                "preserve_existing_tier": not row['previous_month_known'],
                 "rank": index + 1,
                 "incentive_status": incentive_status(diamonds, days, hours, report_date),
                 "avatar_url": avatar_url,
@@ -389,45 +411,59 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
             }
         )
 
+    ids = [row['creator_id'] for row in creators]
+    if len(ids) != len(set(ids)):
+        raise ImportErrorWithContext('Multiple creator names share a Creator ID; correct the report before importing.')
+    for row in creators:
+        if any(not math.isfinite(row[key]) or row[key] < 0 for key in ('diamonds', 'hours', 'days', 'battles', 'new_followers')):
+            raise ImportErrorWithContext('Creator metrics must be finite, non-negative values.')
     file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-    return creators, file_hash
+    return (creators, file_hash, report_date) if with_report_date else (creators, file_hash)
 
 
-def import_spreadsheet(database, path: Path, report_date: date | None = None) -> ImportResult:
-    creators, file_hash = load_creators_from_spreadsheet(path, report_date)
-    observed_on = report_date or date.today()
-    # Excel exports of the same daily stats can have different file metadata and
-    # hashes. Deduplicate the referral update by the actual metrics instead.
-    referral_snapshot = {
-        "observed_on": observed_on.isoformat(),
-        "creators": sorted(
-            (
-                {
-                    "id": str(row["creator_id"]),
-                    "name": str(row["creator_name"]).strip().lower(),
-                    "diamonds": int(row["diamonds"]),
-                    "hours": round(float(row["hours"]), 2),
-                }
-                for row in creators
-            ),
-            key=lambda row: (row["id"], row["name"]),
-        ),
-    }
-    snapshot_hash = hashlib.sha256(
-        json.dumps(referral_snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-    duplicate = database.has_import_hash(file_hash) or database.has_referral_snapshot_hash(snapshot_hash)
-    database.replace_creators(creators, path.name, file_hash, snapshot_hash)
-    # A repeated attachment only refreshes the visible snapshot; it must never add
-    # its referral delta a second time.
-    if not duplicate:
-        # Referrals retain their own cumulative totals, even though this import
-        # replaces the main creator table at every monthly reset.
-        database.update_referrals_from_snapshot(creators, observed_on)
-    return ImportResult(
-        creator_count=len(creators),
-        file_hash=file_hash,
-        total_diamonds=sum(row["diamonds"] for row in creators),
-        total_battles=sum(row["battles"] for row in creators),
-        duplicate=duplicate,
-    )
+def import_spreadsheet(database, path: Path, report_date: date | None = None, publish: bool = True) -> ImportResult:
+    from dataclasses import asdict
+    from automation_store import utcnow
+
+    creators, file_hash, observed_on = load_creators_from_spreadsheet(path, report_date, with_report_date=True)
+    canonical = [{k: v for k, v in row.items() if k not in ('avatar_url', 'avatar_path')} for row in creators]
+    snapshot_hash = hashlib.sha256(json.dumps(
+        {'report_date': observed_on.isoformat(), 'creators': canonical}, sort_keys=True
+    ).encode()).hexdigest()
+    with database.transaction() as conn:
+        latest = database.latest_import()
+        if latest and observed_on.isoformat() < latest['report_date']:
+            raise ImportErrorWithContext('This report is older than the current snapshot; import the latest report instead.')
+        duplicate_row = conn.execute('SELECT * FROM import_runs WHERE snapshot_hash=?', (snapshot_hash,)).fetchone()
+        if duplicate_row and latest and duplicate_row['id'] != latest['id']:
+            raise ImportErrorWithContext('This upload is a superseded report version; the current corrected snapshot was preserved.')
+        duplicate = duplicate_row is not None
+        if duplicate:
+            import_id = duplicate_row['id']
+        else:
+            previous = {c.creator_id: asdict(c) for c in database.get_creators()}
+            legacy_duplicate = database.has_import_hash(file_hash)
+            database.replace_creators(creators, path.name, file_hash, snapshot_hash)
+            if not legacy_duplicate:
+                database.update_referrals_from_snapshot(creators, observed_on)
+            cursor = conn.execute("""INSERT INTO import_runs
+                (report_date, imported_at, filename, snapshot_hash, creator_count)
+                VALUES (?, ?, ?, ?, ?)""", (observed_on.isoformat(), utcnow(), path.name, snapshot_hash, len(creators)))
+            import_id = cursor.lastrowid
+            for creator in database.get_creators():
+                row = asdict(creator)
+                prior = [h for h in database.creator_history(creator.creator_id) if h['report_date'] < observed_on.isoformat()]
+                before = prior[-1] if prior else None
+                same_month = before and before['report_date'][:7] == observed_on.isoformat()[:7]
+                row['rank_movement'] = before['rank'] - row['rank'] if before and same_month else 0
+                conn.execute("""INSERT INTO creator_snapshots VALUES (?, ?, ?, ?)
+                    ON CONFLICT(creator_id, report_date) DO UPDATE SET
+                    import_id=excluded.import_id, payload=excluded.payload""",
+                    (creator.creator_id, observed_on.isoformat(), import_id, json.dumps(row)))
+            # Detection is installed independently of the import/parser business rules.
+            from achievements import record_achievements
+            record_achievements(database, previous, observed_on, import_id, publish)
+        from website_sync import enqueue
+        enqueue(conn, import_id, snapshot_hash, path.name, observed_on, creators)
+    return ImportResult(len(creators), file_hash, sum(r['diamonds'] for r in creators),
+                        sum(r['battles'] for r in creators), duplicate, observed_on, import_id)

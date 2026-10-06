@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from branding import BRAND_SHORT
 
 from PIL import ImageDraw
 
 from database import Referral, referral_reward_for_diamonds
-from dashboard.style import COLORS, canvas, downsample, draw_fasttrack_logo, fit_text, format_int, line, rounded, text
+from dashboard.style import COLORS, canvas, downsample, draw_aether_logo, fit_text, format_int, line, rounded, text
 
 
 WIDTH = 1280
@@ -54,10 +55,10 @@ def render_all_referrals(referrals: list[Referral], output_path: Path) -> Path:
     image, draw = canvas(WIDTH, height)
 
     rounded(draw, (24, 20, WIDTH - 24, 146), 12, COLORS["panel_alt"], COLORS["border"])
-    text(draw, (48, 46), "TEAM VEXTAL", 13, COLORS["muted"], True)
+    text(draw, (48, 46), BRAND_SHORT, 13, COLORS["muted"], True)
     text(draw, (48, 74), "ACTIVE REFERRALS", 34, COLORS["text"], True)
     text(draw, (48, 115), "Current rewards owed to each referrer", 16, COLORS["subtext"])
-    draw_fasttrack_logo(image, draw, 1138, 36, 88, 88, framed=False)
+    draw_aether_logo(image, draw, 1138, 36, 88, 88, framed=False)
 
     total_owed = sum(referral_reward_for_diamonds(referral.diamonds)[1] for referral in referrals)
     text(draw, (1110, 58), f"£{total_owed}", 32, COLORS["green"], True, "ra")

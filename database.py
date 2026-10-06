@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from config import DATABASE_PATH, ensure_directories
+from automation_store import AutomationStore
 
 
 REFERRAL_REWARD_TIERS = (
@@ -91,17 +93,24 @@ class Referral:
     current_tier: int
     status: str
     final_reward: str
+    last_report_date: str = ""
 
 
-class Database:
+class Database(AutomationStore):
     def __init__(self, path: Path = DATABASE_PATH) -> None:
         ensure_directories()
         self.path = path
+        self._local = threading.local()
         self.init_db()
+        self.init_automation()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.path)
+        active = getattr(self._local, 'connection', None)
+        if active is not None:
+            yield active
+            return
+        conn = sqlite3.connect(self.path, timeout=30)
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -111,6 +120,19 @@ class Database:
             raise
         finally:
             conn.close()
+
+    @contextmanager
+    def transaction(self):
+        """Share a connection across existing methods in this worker thread."""
+        if getattr(self._local, 'connection', None) is not None:
+            raise RuntimeError('Nested import transaction')
+        with self.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            self._local.connection = conn
+            try:
+                yield conn
+            finally:
+                self._local.connection = None
 
     def init_db(self) -> None:
         with self.connect() as conn:
@@ -155,6 +177,7 @@ class Database:
                 )
                 """
             )
+            self._ensure_column(conn, "referrals", "last_report_date", "TEXT NOT NULL DEFAULT ''")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id, status)")
             self._ensure_column(conn, "creators", "avatar_url", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "creators", "avatar_path", "TEXT NOT NULL DEFAULT ''")
@@ -269,7 +292,9 @@ class Database:
         # The spreadsheet is month-to-date. For someone who joined this month,
         # every reported metric belongs to the referral period, even if the
         # referral is recorded after the latest import.
-        joined_this_month = (start_date.year, start_date.month) == (date.today().year, date.today().month)
+        latest = self.latest_import()
+        as_of = date.fromisoformat(latest['report_date']) if latest else date.today()
+        joined_this_month = (start_date.year, start_date.month) == (as_of.year, as_of.month)
         # Always retain the latest cumulative spreadsheet values as the last
         # snapshot.  Current-month referrals begin with the full month-to-date
         # total, so storing zero here would add that same total again when the
@@ -283,13 +308,13 @@ class Database:
                 """
                 INSERT INTO referrals (
                     referrer_id, referrer_name, creator_id, creator_name, start_date, end_date,
-                    diamonds, hours, last_diamonds, last_hours, days_remaining, current_tier
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    diamonds, hours, last_diamonds, last_hours, days_remaining, current_tier, last_report_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (referrer.creator_id, referrer.creator_name, referred_id, referred_name,
                  start_date.isoformat(), end_date.isoformat(), starting_diamonds, starting_hours,
-                 baseline_diamonds, baseline_hours, max(0, (end_date - date.today()).days),
-                 self._tier_for_diamonds(starting_diamonds)),
+                 baseline_diamonds, baseline_hours, max(0, (end_date - as_of).days),
+                 self._tier_for_diamonds(starting_diamonds), as_of.isoformat()),
             )
             row = conn.execute("SELECT * FROM referrals WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return Referral(**dict(row))
@@ -330,6 +355,7 @@ class Database:
                 last_diamonds, last_hours = referral["last_diamonds"], referral["last_hours"]
                 creator_id = referral["creator_id"]
                 creator_name = referral["creator_name"]
+                last_report_date = referral["last_report_date"]
                 if creator and observed_on >= date.fromisoformat(referral["start_date"]):
                     current_diamonds = int(creator["diamonds"])
                     current_hours = float(creator["hours"])
@@ -348,13 +374,20 @@ class Database:
                         last_diamonds, last_hours = current_diamonds, current_hours
                         creator_id, creator_name = creator["creator_id"], creator["creator_name"]
                     else:
-                        # Monthly sheets are cumulative. A smaller value marks a new month, so
-                        # its full value is the new contribution rather than a negative delta.
-                        diamonds += current_diamonds - last_diamonds if current_diamonds >= last_diamonds else current_diamonds
-                        hours += current_hours - last_hours if current_hours >= last_hours else current_hours
+                        # A correction within the same month is not a monthly reset.
+                        # Legacy rows without a dated baseline retain their prior fallback.
+                        if last_report_date:
+                            reset = last_report_date[:7] != observed_on.isoformat()[:7]
+                            diamonds = max(0, diamonds + (current_diamonds if reset else current_diamonds - last_diamonds))
+                            hours = max(0, hours + (current_hours if reset else current_hours - last_hours))
+                        else:
+                            diamonds += current_diamonds - last_diamonds if current_diamonds >= last_diamonds else current_diamonds
+                            hours += current_hours - last_hours if current_hours >= last_hours else current_hours
                         last_diamonds, last_hours = current_diamonds, current_hours
                         creator_id, creator_name = creator["creator_id"], creator["creator_name"]
 
+                if creator:
+                    last_report_date = observed_on.isoformat()
                 current_tier = self._tier_for_diamonds(diamonds)
                 days_remaining = max(0, (end_date - observed_on).days)
                 completed = observed_on >= end_date
@@ -364,11 +397,11 @@ class Database:
                 conn.execute(
                     """
                     UPDATE referrals SET creator_id=?, creator_name=?, diamonds=?, hours=?,
-                        last_diamonds=?, last_hours=?, days_remaining=?, current_tier=?, status=?, final_reward=?
+                        last_diamonds=?, last_hours=?, days_remaining=?, current_tier=?, status=?, final_reward=?, last_report_date=?
                     WHERE id=?
                     """,
                     (creator_id, creator_name, int(round(diamonds)), round(hours, 2), last_diamonds,
-                     last_hours, days_remaining, current_tier, status, final_reward, referral["id"]),
+                     last_hours, days_remaining, current_tier, status, final_reward, last_report_date, referral["id"]),
                 )
 
     @staticmethod
@@ -378,13 +411,6 @@ class Database:
         return tier
 
     def get_referrals_for_referrer(self, referrer_id: str, include_completed: bool = False) -> list[Referral]:
-        # A dashboard opened after day 30 must not keep showing an expired referral
-        # merely because no new spreadsheet has arrived that day.
-        # Reconcile against the current snapshot so referrals created after an
-        # import can immediately show their already-earned month-to-date totals.
-        with self.connect() as conn:
-            creators = [dict(row) for row in conn.execute("SELECT * FROM creators").fetchall()]
-        self.update_referrals_from_snapshot(creators, date.today())
         query = "SELECT * FROM referrals WHERE referrer_id = ?"
         if not include_completed:
             query += " AND status = 'Active'"
@@ -394,10 +420,7 @@ class Database:
         return [Referral(**dict(row)) for row in rows]
 
     def get_active_referrals(self) -> list[Referral]:
-        """Return every current referral after refreshing its tracked progress."""
-        with self.connect() as conn:
-            creators = [dict(row) for row in conn.execute("SELECT * FROM creators").fetchall()]
-        self.update_referrals_from_snapshot(creators, date.today())
+        """Return referrals as of the latest imported report."""
         with self.connect() as conn:
             rows = conn.execute(
                 """
@@ -514,11 +537,11 @@ class Database:
                    OR lower(creator_id) = ?
                    OR lower(creator_id) LIKE ?
                 ORDER BY
-                    CASE WHEN lower(creator_name) = ? THEN 0 ELSE 1 END,
+                    CASE WHEN lower(creator_id) = ? THEN 0 WHEN lower(creator_name) = ? THEN 1 ELSE 2 END,
                     rank ASC
                 LIMIT 1
                 """,
-                (needle, f"%{needle}%", needle, f"%{needle}%", needle),
+                (needle, f"%{needle}%", needle, f"%{needle}%", needle, needle),
             ).fetchone()
         return Creator(**dict(row)) if row else None
 

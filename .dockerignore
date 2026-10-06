@@ -7,3 +7,6 @@ data/database.db
 data/uploads/
 data/avatars/
 data/*.png
+
+data/
+tests/
