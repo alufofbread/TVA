@@ -58,16 +58,19 @@ def _flush(database):
             conn.execute('UPDATE website_report_outbox SET attempts=attempts+1 WHERE import_id=?', (row['import_id'],))
         request = urllib.request.Request(url + '/rest/v1/rpc/import_creator_report',
             data=json.dumps({'payload': json.loads(row['payload'])}).encode(), headers=headers, method='POST')
+        stage='report_import'
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 outcome = json.load(response)
             if outcome not in ('imported', 'duplicate'):
                 raise ValueError('Unexpected report acknowledgement')
             from import_members import provision_members
+            stage='account_provision'
             provision_members()
-        except Exception:
+        except Exception as error:
             # Never print request headers, raw response bodies or creator data.
-            logging.warning('Website report delivery pending for import %s; will retry.', row['import_id'])
+            from onboarding import safe_api_error
+            logging.warning('Website report delivery pending for import %s; stage=%s; reason=%s; will retry.', row['import_id'],stage,safe_api_error(error))
             return 'pending'
         with database.connect() as conn:
             conn.execute('UPDATE website_report_outbox SET delivered=1 WHERE import_id=?', (row['import_id'],))

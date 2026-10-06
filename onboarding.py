@@ -6,10 +6,44 @@ import os
 import re
 import secrets
 import urllib.request
+import urllib.error
 
 
 class OnboardingError(RuntimeError):
     pass
+
+
+def safe_api_error(error):
+    """Return fixed diagnostic codes; never echo server bodies or credentials."""
+    if isinstance(error,urllib.error.HTTPError):
+        try:
+            result=json.loads(error.read(16384))
+        except Exception:result={}
+        messages={
+            'Report manager must match exactly one active manager account':'manager_account_missing_or_ambiguous',
+            'Report manager has no active manager account':'manager_account_missing_or_ambiguous',
+            'Import login conflict':'existing_login_conflict',
+            'Creator already has an account':'existing_login_conflict',
+            'Creator password unavailable':'creator_password_unavailable',
+            'Account already assigned':'existing_login_conflict',
+        }
+        if isinstance(result,dict):
+            if result.get('message') in messages:return messages[result['message']]
+            code=result.get('code')
+            if code in ('PGRST202','PGRST205','42883','42P01','42703'):return 'database_migration_missing'
+            if code=='42501':return 'service_key_permissions'
+            if code=='23505':return 'account_or_report_conflict'
+        if error.code in (401,403):return 'service_key_rejected'
+        if error.code==429:return 'supabase_rate_limited'
+        return 'supabase_http_'+str(error.code)
+    if isinstance(error,OnboardingError) and str(error) in {
+        'supabase_not_configured','invalid_import_handle','existing_login_conflict',
+        'supabase_request_failed','database_migration_missing','service_key_permissions',
+        'account_or_report_conflict','service_key_rejected','supabase_rate_limited',
+        'manager_account_missing_or_ambiguous','creator_password_unavailable'}:
+        return str(error)
+    if isinstance(error,(OSError,TimeoutError)):return 'supabase_connection_failed'
+    return 'supabase_request_failed'
 
 
 def api(path, body=None, method=None):
@@ -24,9 +58,9 @@ def api(path, body=None, method=None):
         with urllib.request.urlopen(request,timeout=20) as response:
             raw=response.read()
             return json.loads(raw) if raw else None
-    except Exception:
+    except Exception as error:
         # Response bodies may contain credentials or PII; never log them.
-        raise OnboardingError('supabase_request_failed') from None
+        raise OnboardingError(safe_api_error(error)) from None
 
 
 def rpc(name,**body):
