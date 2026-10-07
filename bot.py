@@ -726,7 +726,11 @@ async def set_channel_command(
         await interaction.followup.send("Please choose a server text channel for creator stats.", ephemeral=True)
         return
 
-    bot.database.set_creator_channel(creator.creator_id, target_channel.id, interaction.user.id)
+    try:
+        bot.database.set_creator_channel(creator.creator_id, target_channel.id, interaction.user.id)
+    except ValueError as error:
+        await interaction.followup.send(str(error),ephemeral=True)
+        return
     await interaction.followup.send(
         f"{creator.creator_name}'s stats and graphs will be sent to {target_channel.mention} automatically after /import.",
         ephemeral=False,

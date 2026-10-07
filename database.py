@@ -446,6 +446,11 @@ class Database(AutomationStore):
     def set_creator_channel(self, creator_id: str, channel_id: int, updated_by: int) -> None:
         now = datetime.now(timezone.utc).isoformat()
         with self.connect() as conn:
+            if not conn.in_transaction:
+                conn.execute('BEGIN IMMEDIATE')
+            if conn.execute('SELECT 1 FROM creator_channels WHERE channel_id=? AND creator_id<>?',
+                            (channel_id,creator_id)).fetchone():
+                raise ValueError('This stats channel is already assigned to another creator. Choose a separate channel.')
             conn.execute(
                 """
                 INSERT INTO creator_channels (creator_id, channel_id, updated_by, updated_at)
@@ -470,6 +475,10 @@ class Database(AutomationStore):
                     cc.updated_at
                 FROM creator_channels cc
                 INNER JOIN creators c ON c.creator_id = cc.creator_id
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM creator_channels other
+                    WHERE other.channel_id=cc.channel_id AND other.creator_id<>cc.creator_id
+                )
                 ORDER BY c.rank ASC
                 """
             ).fetchall()
