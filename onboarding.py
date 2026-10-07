@@ -26,6 +26,12 @@ def safe_api_error(error):
             'Creator already has an account':'existing_login_conflict',
             'Creator password unavailable':'creator_password_unavailable',
             'Account already assigned':'existing_login_conflict',
+            'Report identity conflict':'report_identity_conflict',
+            'Invalid report arrays':'invalid_report_arrays',
+            'Invalid report metadata':'invalid_report_metadata',
+            'Invalid creator':'invalid_report_creator',
+            'Duplicate creator rows':'duplicate_report_creators',
+            'Invalid report metrics':'invalid_report_metrics',
         }
         if isinstance(result,dict):
             if result.get('message') in messages:return messages[result['message']]
@@ -33,6 +39,9 @@ def safe_api_error(error):
             if code in ('PGRST202','PGRST205','42883','42P01','42703'):return 'database_migration_missing'
             if code=='42501':return 'service_key_permissions'
             if code=='23505':return 'account_or_report_conflict'
+            # SQLSTATEs contain no report contents or credentials. Preserve an
+            # unknown database code rather than hiding every failure as HTTP 400.
+            if isinstance(code,str) and re.fullmatch(r'[A-Z0-9]{5}',code):return 'supabase_sql_'+code
         if error.code in (401,403):return 'service_key_rejected'
         if error.code==429:return 'supabase_rate_limited'
         return 'supabase_http_'+str(error.code)
@@ -40,7 +49,11 @@ def safe_api_error(error):
         'supabase_not_configured','invalid_import_handle','existing_login_conflict',
         'supabase_request_failed','database_migration_missing','service_key_permissions',
         'account_or_report_conflict','service_key_rejected','supabase_rate_limited',
-        'manager_account_missing_or_ambiguous','creator_password_unavailable'}:
+        'manager_account_missing_or_ambiguous','creator_password_unavailable',
+        'report_identity_conflict','invalid_report_arrays','invalid_report_metadata',
+        'invalid_report_creator','duplicate_report_creators','invalid_report_metrics'}:
+        return str(error)
+    if isinstance(error,OnboardingError) and re.fullmatch(r'supabase_sql_[A-Z0-9]{5}',str(error)):
         return str(error)
     if isinstance(error,(OSError,TimeoutError)):return 'supabase_connection_failed'
     return 'supabase_request_failed'
