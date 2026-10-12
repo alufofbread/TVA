@@ -19,7 +19,7 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-Copy `.env.example` to `.env` and set `DISCORD_TOKEN` and `DISCORD_GUILD_ID`. Never commit `.env`. Commands require Discord Administrator permission or the existing `bot controller` role. Channel configuration also requires Manage Channels on the invoking member.
+Copy `.env.example` to `.env` and set `DISCORD_TOKEN` and `DISCORD_GUILD_ID`. Never commit `.env`. All commands require Discord Administrator permission or the existing **Bot Controller** role (case insensitive). Bot Controllers can configure destinations without Manage Channels permission. To hide commands from other members, restrict this application to Administrator and Bot Controller in Server Settings > Integrations. Leave the Support bot available to everyone. Restart the bot after deploying changes.
 
 Configure once:
 

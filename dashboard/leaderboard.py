@@ -1,278 +1,192 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import calendar
+import math
 from datetime import date
 from pathlib import Path
 
-from PIL import ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
-from config import BRAND_NAME
+from branding import BRAND_SHORT
 from database import Creator
 from dashboard.style import (
-    COLORS,
-    canvas,
-    circular_avatar,
-    downsample,
-    draw_aether_logo,
-    format_hours,
-    format_int,
-    incentive_label,
-    league_color,
-    league_name,
-    line,
-    rounded,
-    text,
-    text_width,
+    canvas, circular_avatar, downsample, draw_aether_logo, fit_text,
+    font, format_hours, format_int, line, rounded, text, text_width,
 )
 
-TIER_STYLES = {
-    1: {"accent": "#22C55E", "fill": "#062815", "glow": "#0D3A21"},
-    2: {"accent": "#4ADE80", "fill": "#082B18", "glow": "#124126"},
-    3: {"accent": "#38BDF8", "fill": "#071D3D", "glow": "#102D58"},
-    4: {"accent": "#2563EB", "fill": "#081B35", "glow": "#0E2B5C"},
-    5: {"accent": "#FACC15", "fill": "#2A2108", "glow": "#49360D"},
-    6: {"accent": "#F59E0B", "fill": "#2D1E07", "glow": "#4B320A"},
-    7: {"accent": "#EA580C", "fill": "#301807", "glow": "#4E270C"},
-    8: {"accent": "#A78BFA", "fill": "#1A1233", "glow": "#2B1C52"},
-    9: {"accent": "#8B5CF6", "fill": "#1A1233", "glow": "#2B1C52"},
-    10: {"accent": "#6D28D9", "fill": "#180F2E", "glow": "#29184A"},
-}
+PINK = '#FF4FA3'
+BLUE = '#5287FF'
+CYAN = '#00CFFF'
+WHITE = '#F4F4F7'
+MUTED = '#A49FAC'
+LEAGUES = (
+    ('Rising', '#EEEEF4'), ('Star', '#00CFFF'), ('Premier', '#D986FF'),
+    ('Elite', PINK), ('Millionaire', '#FFE000'), ('Icon', '#FF1818'),
+)
 
-ROW_TEXT_Y_OFFSET = -2
 
-COLUMNS = {
-    "rank": 68,
-    "avatar": 126,
-    "creator": 264,
-    "diamonds": 450,
-    "hours": 566,
-    "days": 646,
-    "followers": 744,
-    "league": 850,
-    "incentive": 1026,
-}
+def league_index(tier: int) -> int:
+    # Presentation groups only; imported tiers and incentive rules stay intact.
+    return min(5, max(0, (tier - 1) // 2 if tier <= 8 else tier - 5))
 
 
 def _month_progress(today: date | None = None) -> str:
     current = today or date.today()
-    days_in_month = calendar.monthrange(current.year, current.month)[1]
-    return f"Day {current.day}/{days_in_month}"
+    return f'Day {current.day}/{calendar.monthrange(current.year, current.month)[1]}'
 
 
-def _soft_backdrop(draw: ImageDraw.ImageDraw, width: int, height: int) -> None:
-    for y in range(0, height * 2, 2):
-        blend = y / max(1, height * 2)
-        r = int(5 + 8 * blend)
-        g = int(6 + 9 * blend)
-        b = int(8 + 12 * blend)
-        draw.rectangle((0, y, width * 2, y + 2), fill=(r, g, b))
-    draw.ellipse((-260, -220, 430, 300), fill="#071828")
-    draw.ellipse((840, -260, 1460, 260), fill="#151018")
-
-
-def _pill(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, fill: str, outline: str, color: str) -> None:
-    width = text_width(label, 14, True) + 32
-    rounded(draw, (x, y, x + width, y + 32), 16, fill, outline)
-    text(draw, (x + width // 2, y + 7), label, 14, color, True, "ma")
-
-
-def _centered_pill(draw: ImageDraw.ImageDraw, center_x: int, y: int, label: str, fill: str, outline: str, color: str) -> None:
-    width = text_width(label, 14, True) + 32
-    _pill(draw, center_x - width // 2, y, label, fill, outline, color)
-
-
-def _summary_card(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, label: str, value: str, accent: str, subtitle: str, value_size: int = 25) -> None:
-    rounded(draw, (x + 3, y + 5, x + w + 3, y + 123), 12, "#050607")
-    rounded(draw, (x, y, x + w, y + 118), 12, COLORS["panel"], "#252A30")
-    rounded(draw, (x + 18, y + 18, x + 50, y + 50), 10, "#1B2026", "#2D343C")
-    line(draw, (x + 26, y + 34, x + 42, y + 34), accent, 4)
-    text(draw, (x + 66, y + 22), label.upper(), 11, COLORS["muted"], True)
-    text(draw, (x + 66, y + 43), subtitle, 12, COLORS["subtext"])
-    text(draw, (x + 22, y + 82), value, value_size, COLORS["text"], True, "lm")
-    line(draw, (x + 22, y + 104, x + w - 22, y + 104), accent, 2)
-
-
-def _status_pill(draw: ImageDraw.ImageDraw, x: int, y: int, status: str) -> None:
-    label, color = incentive_label(status)
-    if status == "ACHIEVED":
-        fill = "#082616"
-    elif status == "NOT_ACHIEVABLE":
-        fill = "#2B0D13"
+def _icon(draw, cx, cy, size, kind, color):
+    r = size / 2
+    def stroke(points, close=False):
+        pts = [(round((cx+x*r)*2), round((cy+y*r)*2)) for x,y in points]
+        if close: pts.append(pts[0])
+        draw.line(pts, fill=color, width=3, joint='curve')
+    if kind == 0:
+        for offset in (-.48, 0, .48):
+            stroke([(-.7, .25+offset), (0, -.48+offset), (.7, .25+offset)])
+    elif kind == 1:
+        pts=[]
+        for i in range(10):
+            angle=-math.pi/2+i*math.pi/5
+            radius=1 if i%2==0 else .43
+            pts.append((math.cos(angle)*radius, math.sin(angle)*radius))
+        stroke(pts, True)
+    elif kind == 2:
+        stroke([(-.85,-.4),(-.6,.65),(.6,.65),(.85,-.4),(.35,.05),(0,-.7),(-.35,.05)],True)
+        stroke([(-.6,.85),(.6,.85)])
+        for x,y in [(-.85,-.55),(0,-.85),(.85,-.55)]:
+            draw.ellipse(((cx+x*r-2)*2,(cy+y*r-2)*2,(cx+x*r+2)*2,(cy+y*r+2)*2),outline=color,width=2)
+    elif kind == 4:
+        stroke([(-1,-.35),(-.65,-.85),(.65,-.85),(1,-.35),(0,1)],True)
+        stroke([(-1,-.35),(1,-.35)])
+        stroke([(-.65,-.85),(0,1),(.65,-.85)])
+        stroke([(-.3,-.85),(-.5,-.35),(0,1),(.5,-.35),(.3,-.85)])
     else:
-        fill = "#2A2108"
-    _pill(draw, x, y, label, fill, color, color)
+        stroke([(math.cos(-math.pi/2+i*math.pi/3),math.sin(-math.pi/2+i*math.pi/3)) for i in range(6)],True)
+        _icon(draw,cx,cy,size*.52,1,color)
 
 
-def _centered_status_pill(draw: ImageDraw.ImageDraw, center_x: int, y: int, status: str) -> None:
-    label, color = incentive_label(status)
-    if status == "ACHIEVED":
-        fill = "#082616"
-    elif status == "NOT_ACHIEVABLE":
-        fill = "#2B0D13"
-    else:
-        fill = "#2A2108"
-    _centered_pill(draw, center_x, y, label, fill, color, color)
+def _gradient_border(image, box, left=CYAN, right=PINK, radius=11):
+    x0,y0,x1,y1=[v*2 for v in box]
+    mask=Image.new('L',(x1-x0+1,y1-y0+1))
+    md=ImageDraw.Draw(mask)
+    md.rounded_rectangle((0,0,x1-x0,y1-y0),radius=radius*2,outline=255,width=2)
+    strip=Image.new('RGB',mask.size)
+    sd=ImageDraw.Draw(strip)
+    a=tuple(bytes.fromhex(left[1:])); b=tuple(bytes.fromhex(right[1:]))
+    for x in range(strip.width):
+        t=x/max(1,strip.width-1)
+        sd.line((x,0,x,strip.height),fill=tuple(round(u+(v-u)*t) for u,v in zip(a,b)))
+    image.paste(strip,(x0,y0),mask)
 
 
-def _league_pill(draw: ImageDraw.ImageDraw, x: int, y: int, tier: int) -> None:
-    style = TIER_STYLES.get(tier, TIER_STYLES[10])
-    label = league_name(tier)
-    width = text_width(label, 14, True) + 32
-
-    rounded(draw, (x - 2, y - 2, x + width + 2, y + 34), 18, style["glow"])
-    rounded(draw, (x, y, x + width, y + 32), 16, style["fill"], style["accent"])
-    line(draw, (x + 10, y + 6, x + 25, y + 6), "#F8FAFC", 1)
-    line(draw, (x + width - 28, y + 26, x + width - 11, y + 26), COLORS["cyan"], 1)
-    text(draw, (x + width // 2, y + 7), label, 14, style["accent"], True, "ma")
-
-
-def _centered_league_pill(draw: ImageDraw.ImageDraw, center_x: int, y: int, tier: int) -> None:
-    width = text_width(league_name(tier), 14, True) + 32
-    _league_pill(draw, center_x - width // 2, y, tier)
-
-
-def _tier_avatar_color(tier: int) -> str:
-    return league_color(tier)
-
-
-def _most_improved(creators: list[Creator]) -> Creator | None:
-    if not creators:
-        return None
-    return max(creators, key=lambda creator: (creator.new_followers, creator.diamonds))
+def _gradient_title(image, draw):
+    size=52
+    spacing=7
+    width=sum(text_width(char,size,True) for char in BRAND_SHORT)+spacing*(len(BRAND_SHORT)-1)
+    x=(1024-width)//2
+    mask=Image.new('L',image.size)
+    md=ImageDraw.Draw(mask)
+    cursor=x
+    for char in BRAND_SHORT:
+        md.text((cursor*2,52),char,font=font(size*2,True),fill=255)
+        cursor+=text_width(char,size,True)+spacing
+    glow=mask.filter(ImageFilter.GaussianBlur(12)).point(lambda value: round(value*.42))
+    image.paste('#7A55E8',(0,0),glow)
+    gradient=Image.new('RGB',mask.size)
+    gd=ImageDraw.Draw(gradient)
+    stops=((0,207,255),(122,109,255),(255,79,163))
+    for col in range(gradient.width):
+        t=max(0,min(1,(col-x*2)/max(1,width*2)))
+        a,b=stops[:2] if t<.5 else stops[1:]
+        blend=t*2 if t<.5 else (t-.5)*2
+        gd.line((col,0,col,image.height),fill=tuple(round(u+(v-u)*blend) for u,v in zip(a,b)))
+    image.paste(gradient,(0,0),mask)
 
 
-def _ellipsize(value: str, limit: int) -> str:
-    return value if len(value) <= limit else value[: max(0, limit - 3)] + "..."
+def render_leaderboard(creators: list[Creator], summary: dict[str,int], output_path: Path, report_date: date | None = None) -> Path:
+    visible=creators[:15]
+    row_h=61
+    table_y=378
+    table_bottom=table_y+59+max(1,len(visible))*row_h
+    height=table_bottom+184
+    image,draw=canvas(1024,height)
+    draw.rectangle((0,0,image.width,image.height),fill='#02040C')
+    rounded(draw,(16,13,1008,100),14,'#03050D','#282632')
+    text(draw,(39,46),BRAND_SHORT,15,CYAN)
+    text(draw,(40+text_width(BRAND_SHORT+' ',15),46),'ANALYTICS',15,WHITE)
+    _gradient_title(image,draw)
+    draw_aether_logo(image,draw,902,18,80,78,framed=False)
 
+    text(draw,(28,120),'MONTH TO DATE',15,PINK)
+    rounded(draw,(169,113,264,146),16,'#03050D',PINK)
+    text(draw,(216,129),_month_progress(report_date),15,PINK,False,'mm')
+    text(draw,(282,120),'Live agency leaderboard',15,WHITE)
 
-def _row_text(
-    draw: ImageDraw.ImageDraw,
-    x: int,
-    y: int,
-    value: str,
-    size: int,
-    fill: str,
-    bold: bool = False,
-    anchor: str | None = None,
-) -> None:
-    text(draw, (x, y + ROW_TEXT_Y_OFFSET), value, size, fill, bold, anchor)
+    rounded(draw,(16,156,248,357),11,'#080615')
+    _gradient_border(image,(16,156,248,357),'#D986FF',PINK)
+    _icon(draw,63,210,52,4,'#E995FF')
+    text(draw,(104,185),'TOTAL DIAMONDS',14,WHITE)
+    text(draw,(104,216),'Month aggregate',14,'#CBC6D1')
+    value=format_int(summary.get('total_diamonds',sum(c.diamonds for c in creators)))
+    value_size=44
+    while text_width(value,value_size,True)>192: value_size-=1
+    text(draw,(38,259),value,value_size,WHITE,True)
+    line(draw,(39,333,226,333),PINK,3)
 
+    rounded(draw,(261,156,763,357),11,'#060712')
+    _gradient_border(image,(261,156,763,357),'#D986FF',PINK)
+    text(draw,(283,176),'LEAGUE DISTRIBUTION',14,WHITE)
+    counts=[0]*6
+    for creator in creators: counts[league_index(creator.tier)]+=1
+    for i,(label,color) in enumerate(LEAGUES):
+        cx=305+i*83
+        if i: line(draw,(cx-41,217,cx-41,334),'#55505B')
+        _icon(draw,cx,234,40,i,color)
+        text(draw,(cx,289),str(counts[i]),34,BLUE if i==1 else color,True,'mm')
+        text(draw,(cx,326),label,13,color,False,'mm')
 
-def _tier_border_legend(draw: ImageDraw.ImageDraw, y: int) -> None:
-    text(draw, (36, y + 15), "TIER BORDERS", 11, COLORS["muted"], True, "lm")
-    items = [
-        ("Rookie", 1),
-        ("Pro", 3),
-        ("All Star", 5),
-        ("Elite", 8),
-    ]
-    for index, (label, tier) in enumerate(items):
-        x = 184 + index * 190
-        color = league_color(tier)
-        rounded(draw, (x, y, x + 138, y + 30), 15, "#090B0D", "#22272E")
-        draw.ellipse(((x + 12) * 2, (y + 7) * 2, (x + 28) * 2, (y + 23) * 2), fill="#11151A", outline=color, width=3)
-        text(draw, (x + 80, y + 15), label, 12, color, True, "mm")
+    rounded(draw,(775,156,1008,357),11,'#030C18',CYAN)
+    # Three outlined people, matching the reference's active-creators symbol.
+    for cx,cy,r in [(809,198,6),(835,198,6),(822,203,8)]:
+        draw.ellipse(((cx-r)*2,(cy-r)*2,(cx+r)*2,(cy+r)*2),outline=CYAN,width=3)
+        draw.arc(((cx-r-4)*2,(cy+9)*2,(cx+r+4)*2,(cy+29)*2),180,360,fill=CYAN,width=3)
+    text(draw,(861,185),'ACTIVE CREATORS',14,WHITE)
+    text(draw,(861,216),'Creators tracked',14,'#CBC6D1')
+    text(draw,(797,259),format_int(summary.get('active_creators',len(creators))),44,WHITE,True)
+    line(draw,(798,333,986,333),BLUE,3)
 
-
-def render_leaderboard(creators: list[Creator], summary: dict[str, int], output_path: Path, report_date: date | None = None) -> Path:
-    visible = creators[:15]
-    row_h = 78
-    height = max(995, 326 + (len(visible) + 1) * row_h + 138)
-    image, draw = canvas(1200, height)
-    _soft_backdrop(draw, 1200, height)
-
-    rounded(draw, (24, 22, 1176, 118), 16, "#080A0D", "#20252B")
-    text(draw, (48, 44), "CREATOR NETWORK", 12, COLORS["muted"], True)
-    text(draw, (600, 35), BRAND_NAME, 34, COLORS["text"], True, "ma")
-    draw_aether_logo(image, draw, 1060, 30, 82, 82, framed=False)
-    line(draw, (48, 96, 914, 96), "#1A1F25", 1)
-
-    text(draw, (36, 146), "MONTH TO DATE", 13, COLORS["gold"], True)
-    progress = _month_progress(report_date)
-    rounded(draw, (168, 138, 252, 164), 13, "#1E1A0B", "#4A3B11")
-    text(draw, (210, 144), progress, 12, COLORS["gold"], True, "ma")
-    text(draw, (270, 146), "Live agency leaderboard", 15, COLORS["muted"])
-
-    improved = _most_improved(creators)
-    improved_name = _ellipsize(improved.creator_name, 18) if improved else "No data"
-    improved_subtitle = f"+{format_int(improved.new_followers)} followers" if improved else "Growth leader"
-
-    _summary_card(draw, 32, 184, 248, "Total Diamonds", format_int(summary["total_diamonds"]), COLORS["gold"], "Month aggregate")
-    _summary_card(draw, 296, 184, 208, "Active Creators", format_int(summary["active_creators"]), COLORS["green"], "Creators tracked")
-    _summary_card(draw, 520, 184, 198, "Most Improved", improved_name, COLORS["purple"], improved_subtitle, 17)
-
-    rounded(draw, (738, 184, 1168, 302), 12, COLORS["panel"], "#252A30")
-    text(draw, (762, 206), "LEAGUE DISTRIBUTION", 11, COLORS["muted"], True)
-    tier_counts = {tier: sum(1 for creator in creators if creator.tier == tier) for tier in range(1, 11)}
-    tier_cards = [
-        ("Rookie", tier_counts[1] + tier_counts[2], league_color(1)),
-        ("Pro", tier_counts[3] + tier_counts[4], league_color(3)),
-        ("All Star", tier_counts[5] + tier_counts[6], league_color(5)),
-        ("Elite", sum(tier_counts[tier] for tier in range(7, 11)), league_color(8)),
-    ]
-    for i, (label, count, accent) in enumerate(tier_cards):
-        x = 762 + i * 92
-        rounded(draw, (x, 232, x + 76, 280), 10, "#0B0F13", "#20252B")
-        text(draw, (x + 38, 240), str(count), 20, accent, True, "ma")
-        text(draw, (x + 38, 263), label, 9, COLORS["muted"], True, "ma")
-
-    table_y = 326
-    rounded(draw, (32, table_y, 1168, height - 118), 14, "#090B0D", "#22272E")
-    rounded(draw, (32, table_y, 1168, table_y + 54), 14, "#11151A", "#22272E")
-    headers = [
-        ("RANK", COLUMNS["rank"]),
-        ("CREATOR", COLUMNS["creator"]),
-        ("DIAMONDS", COLUMNS["diamonds"]),
-        ("HOURS", COLUMNS["hours"]),
-        ("DAYS", COLUMNS["days"]),
-        ("FOLLOWERS", COLUMNS["followers"]),
-        ("LEAGUE", COLUMNS["league"]),
-        ("INCENTIVE", COLUMNS["incentive"]),
-    ]
-    for header, x in headers:
-        text(draw, (x, table_y + 21), header, 12, COLORS["muted"], True, "ma")
-    line(draw, (32, table_y + 54, 1168, table_y + 54), "#20252B", 1)
-
-    y = table_y + 60
-    for creator in visible:
-        if creator.rank % 2 == 0:
-            rounded(draw, (42, y + 4, 1158, y + row_h - 4), 12, "#0D1013")
-        if creator.rank <= 3:
-            accent = [COLORS["gold"], COLORS["subtext"], "#D97706"][creator.rank - 1]
-            rounded(draw, (34, y + 14, 39, y + row_h - 14), 2, accent)
-
-        row_mid = y + row_h // 2
-        rank_color = COLORS["gold"] if creator.rank == 1 else COLORS["subtext"] if creator.rank <= 3 else COLORS["muted"]
-        _row_text(draw, COLUMNS["rank"], row_mid, f"#{creator.rank}", 20, rank_color, True, "mm")
-        circular_avatar(
-            image,
-            draw,
-            COLUMNS["avatar"] - 24,
-            row_mid - 24,
-            48,
-            creator.creator_name,
-            creator.rank,
-            creator.avatar_path,
-            _tier_avatar_color(creator.tier),
-            str(creator.tier),
-        )
-        _row_text(draw, 158, row_mid, _ellipsize(creator.creator_name, 15), 19, COLORS["text"], True, "lm")
-        _row_text(draw, COLUMNS["diamonds"], row_mid, format_int(creator.diamonds), 21, COLORS["text"], True, "mm")
-        _row_text(draw, COLUMNS["hours"], row_mid, format_hours(creator.hours), 19, COLORS["subtext"], False, "mm")
-        _row_text(draw, COLUMNS["days"], row_mid, str(creator.days), 19, COLORS["subtext"], False, "mm")
-        _row_text(draw, COLUMNS["followers"], row_mid, format_int(creator.new_followers), 19, COLORS["subtext"], False, "mm")
-        _centered_league_pill(draw, COLUMNS["league"], row_mid - 16, creator.tier)
-        _centered_status_pill(draw, COLUMNS["incentive"], row_mid - 16, creator.incentive_status)
-        line(draw, (48, y + row_h, 1152, y + row_h), "#14191E", 1)
-        y += row_h
-
-    hidden = max(0, len(creators) - len(visible))
-    if hidden:
-        text(draw, (600, height - 108), f"+ {hidden} additional creators not shown", 13, COLORS["muted"], False, "ma")
-    _tier_border_legend(draw, height - 76)
-    text(draw, (36, height - 28), "T1 Achieved = banked incentive  |  T1 Progress = on track  |  T1 Missed = cannot reach target", 13, COLORS["muted"])
-
-    final = downsample(image)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    final.save(output_path, "PNG")
+    rounded(draw,(16,table_y,1008,table_bottom),11,'#030C18')
+    headers=[('RANK',66),('CREATOR',277),('DIAMONDS',490),('HOURS',657),('DAYS',787),('FOLLOWERS',929)]
+    for label,cx in headers: text(draw,(cx,table_y+30),label,15,'#CBC6D1',False,'mm')
+    line(draw,(17,table_y+59,1007,table_y+59),'#242632')
+    for index,creator in enumerate(visible):
+        y=table_y+59+index*row_h
+        mid=y+row_h//2
+        accent={1:'#FFE000',2:'#BBC5DF',3:'#FF7100'}.get(creator.rank,MUTED)
+        if creator.rank<=3: line(draw,(31,y+12,31,y+row_h-12),accent,3)
+        text(draw,(65,mid),f'#{creator.rank}',24,accent,True,'mm')
+        li=league_index(creator.tier)
+        _icon(draw,128,mid,36,li,LEAGUES[li][1])
+        circular_avatar(image,draw,177,mid-23,46,creator.creator_name,creator.rank,creator.avatar_path,'#10BD7B')
+        text(draw,(240,mid),fit_text(creator.creator_name,190,20,True),20,WHITE,True,'lm')
+        text(draw,(491,mid),format_int(creator.diamonds),28,PINK,True,'mm')
+        text(draw,(657,mid),format_hours(creator.hours),20,WHITE,False,'mm')
+        text(draw,(787,mid),str(creator.days),22,WHITE,True,'mm')
+        text(draw,(930,mid),format_int(creator.new_followers),24,BLUE,True,'mm')
+        if index<len(visible)-1: line(draw,(17,y+row_h,1007,y+row_h),'#151F2E')
+    if not visible: text(draw,(512,table_y+89),'No creator data yet',20,MUTED,False,'mm')
+    _gradient_border(image,(16,table_y,1008,table_bottom))
+    hidden=max(0,len(creators)-len(visible))
+    if hidden: text(draw,(512,table_bottom+25),f'+ {hidden} additional creators not shown',18,MUTED,False,'mm')
+    legend_y=table_bottom+53
+    rounded(draw,(16,legend_y,1008,legend_y+75),13,'#03050D','#282632')
+    for i,(label,color) in enumerate(LEAGUES):
+        x=64+i*165
+        _icon(draw,x,legend_y+37,39,i,color)
+        text(draw,(x+34,legend_y+37),label,17,color,False,'lm')
+    text(draw,(28,table_bottom+144),'T1 Achieved = banked incentive  |  T1 Progress = on track  |  T1 Missed = cannot reach target',14,MUTED)
+    output_path=Path(output_path)
+    output_path.parent.mkdir(parents=True,exist_ok=True)
+    downsample(image).save(output_path,'PNG')
     return output_path

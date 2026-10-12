@@ -59,7 +59,7 @@ def can_use_bot(user: discord.User | discord.Member) -> bool:
     if user.guild_permissions.administrator:
         return True
 
-    return any(role.name.lower() == BOT_CONTROLLER_ROLE_NAME for role in user.roles)
+    return any(role.name.strip().lower() == BOT_CONTROLLER_ROLE_NAME for role in user.roles)
 
 
 class BotControllerRequired(app_commands.CheckFailure):
@@ -88,7 +88,7 @@ class AetherCommandTree(app_commands.CommandTree):
         if can_use_bot(interaction.user):
             return True
 
-        await send_app_error(interaction, f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot.")
+        await send_app_error(interaction, f"You need Administrator permission or the Bot Controller role to use this bot.")
         return False
 
 
@@ -296,7 +296,7 @@ async def on_resumed() -> None:
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
     if isinstance(error, BotControllerRequired):
-        await send_app_error(interaction, f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot.")
+        await send_app_error(interaction, f"You need Administrator permission or the Bot Controller role to use this bot.")
         return
 
     if isinstance(error, app_commands.MissingPermissions):
@@ -657,7 +657,6 @@ async def stats_all_command(interaction: discord.Interaction) -> None:
         )
 
 @bot.tree.command(name='set-leaderboard-channel', description='Set the single Aether global leaderboard channel.')
-@app_commands.checks.has_permissions(manage_channels=True)
 @app_commands.check(bot_controller_check)
 async def set_leaderboard_channel_command(interaction: discord.Interaction, channel: discord.TextChannel):
     bot.database.set_automation_channel('leaderboard', channel.id, interaction.user.id)
@@ -666,7 +665,6 @@ async def set_leaderboard_channel_command(interaction: discord.Interaction, chan
 
 @bot.tree.command(name='set-automation-channel', description='Configure an Aether automation destination.')
 @app_commands.choices(purpose=[app_commands.Choice(name=p.title(), value=p) for p in CHANNEL_PURPOSES])
-@app_commands.checks.has_permissions(manage_channels=True)
 @app_commands.check(bot_controller_check)
 async def set_automation_channel_command(interaction: discord.Interaction, purpose: app_commands.Choice[str], channel: discord.TextChannel):
     bot.database.set_automation_channel(purpose.value, channel.id, interaction.user.id)
@@ -708,7 +706,6 @@ async def aether_status_command(interaction: discord.Interaction):
     creator_name="Creator username from the imported creator list",
     channel="Channel that should receive this creator's stats and graphs",
 )
-@app_commands.checks.has_permissions(manage_channels=True)
 @app_commands.check(bot_controller_check)
 async def set_channel_command(
     interaction: discord.Interaction,
@@ -745,7 +742,7 @@ async def set_channel_creator_autocomplete(interaction: discord.Interaction, cur
 @set_channel_command.error
 async def set_channel_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
     if isinstance(error, BotControllerRequired):
-        message = f"You need the {BOT_CONTROLLER_ROLE_NAME} role to use this bot."
+        message = f"You need Administrator permission or the Bot Controller role to use this bot."
     elif isinstance(error, app_commands.MissingPermissions):
         message = "You need Manage Channels permission to set creator stats channels."
     else:
