@@ -17,7 +17,7 @@ from config import BOT_TOKEN, DATABASE_PATH, DATA_DIR, ENV_PATH, GUILD_ID, UPLOA
 from dashboard.creator_stats import render_creator_stats
 from dashboard.leaderboard import render_leaderboard
 from dashboard.referrals import render_all_referrals
-from dashboard.trends import render_creator_trends, load_creator_daily_trends
+from dashboard.trends import load_creator_daily_trends
 from database import Database
 from importer import ImportErrorWithContext, import_spreadsheet
 from config import CHANNEL_PURPOSES, MAX_REPORT_BYTES
@@ -153,7 +153,7 @@ def creator_autocomplete(current: str) -> list[app_commands.Choice[str]]:
     ]
 
 
-async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, Path, str] | None:
+async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, str] | None:
     creator = bot.database.find_creator(creator_id)
     if creator is None:
         return None
@@ -161,12 +161,10 @@ async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, Path, s
     creators = bot.database.get_creators()
     safe_id = hashlib.sha256(creator.creator_id.encode()).hexdigest()[:20]
     output_path = DATA_DIR / f"acn-stats-{safe_id}.png"
-    trends_path = DATA_DIR / f"acn-trends-{safe_id}.png"
     referrals = bot.database.get_referrals_for_referrer(creator.creator_id)
     points = await asyncio.to_thread(load_creator_daily_trends, creator, database=bot.database)
     await asyncio.to_thread(render_creator_stats, creator, len(creators), output_path, referrals, points)
-    await asyncio.to_thread(render_creator_trends, creator, trends_path, points)
-    return output_path, trends_path, creator.creator_name
+    return output_path, creator.creator_name
 
 
 async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: str) -> str | None:
@@ -180,9 +178,9 @@ async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: s
     rendered = await render_creator_dashboard_files(creator_id)
     if rendered is None:
         return 'creator missing from the latest import'
-    output_path, trends_path, creator_name = rendered
+    output_path, creator_name = rendered
     await bot.publisher.upsert(key, channel.id, content=f'Latest Aether stats for {creator_name}',
-        files_factory=lambda: [discord.File(output_path, filename='acn-stats.png'), discord.File(trends_path, filename='acn-trends.png')])
+        files_factory=lambda: [discord.File(output_path, filename='acn-stats.png')])
     return None
 
 
@@ -516,10 +514,8 @@ async def stats_command(interaction: discord.Interaction, creator_name: str) -> 
             await interaction.followup.send(f"I couldn't find a creator matching '{creator_name}'. Check the spelling or import the latest spreadsheet.")
             return
 
-        output_path, trends_path, _creator_name = rendered
+        output_path, _creator_name = rendered
         await interaction.followup.send(file=discord.File(output_path, filename=f"acn-{creator.creator_id}.png"))
-        await asyncio.sleep(0.5)
-        await interaction.followup.send(file=discord.File(trends_path, filename=f"acn-{creator.creator_id}-trends.png"))
 
 @stats_command.autocomplete("creator_name")
 async def stats_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
