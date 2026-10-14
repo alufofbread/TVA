@@ -14,7 +14,6 @@ from discord import app_commands
 
 from avatars import cache_avatar_bytes
 from website_avatars import refresh_website_avatars
-from dashboard.daily_graph import render_three_day_graph
 from manager_reports import ManagerReports
 from config import BOT_TOKEN, DATABASE_PATH, DATA_DIR, ENV_PATH, GUILD_ID, UPLOAD_DIR, ensure_directories
 from dashboard.creator_stats import render_creator_stats
@@ -110,6 +109,7 @@ class AetherBot(discord.Client):
         await register_commands(self, get_required_guild(), COMMAND_SYNC_TIMEOUT_SECONDS)
         from website_sync import worker
         self.website_sync_task = asyncio.create_task(worker(self.database, self.publish_manager_reports))
+        self.manager_schedule_task = asyncio.create_task(self.manager_schedule_worker())
         from onboarding import worker as onboarding_worker
         self.onboarding_task = asyncio.create_task(onboarding_worker(self))
         from config import INTEGRATION_SECRET, INTEGRATION_HOST, INTEGRATION_PORT
@@ -122,10 +122,21 @@ class AetherBot(discord.Client):
     async def publish_manager_reports(self):
         if not self.is_ready() or self.automation_lock.locked():return
         async with self.automation_lock:
-            try:await self.manager_reports.publish()
+            try:await self.manager_reports.publish_due()
             except Exception as error:logging.warning('Manager report pending (%s); will retry after website sync.',type(error).__name__)
 
+    async def manager_schedule_worker(self):
+        await self.wait_until_ready()
+        while True:
+            await self.publish_manager_reports()
+            await asyncio.sleep(30)
+
     async def close(self):
+        schedule_task = getattr(self, 'manager_schedule_task', None)
+        if schedule_task:
+            schedule_task.cancel()
+            try:await schedule_task
+            except asyncio.CancelledError:pass
         onboarding_task = getattr(self, 'onboarding_task', None)
         if onboarding_task:
             onboarding_task.cancel()
@@ -182,21 +193,19 @@ async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: s
     creator = bot.database.find_creator(creator_id)
     if creator is None:
         return 'creator missing from the latest import'
-    graph_path=DATA_DIR/f'acn-daily-{hashlib.sha256(creator_id.encode()).hexdigest()[:20]}.png'
-    await asyncio.to_thread(render_three_day_graph,creator,bot.database.creator_history(creator_id),graph_path)
     latest = bot.database.latest_import()
     import_id = import_id if import_id is not None else latest['id'] if latest else None
     key = f'creator:{creator_id}:import:{import_id}' if import_id is not None else f'creator:{creator_id}:request:{uuid4().hex}'
     report_label = f" | Report {latest['report_date']}" if latest and latest['id'] == import_id else ''
     if creator.hours <= 0:
-        await bot.publisher.upsert(key, channel.id, content=f'Hi {creator.creator_name}! No LIVE hours reported this month yet.{report_label}',edit_existing=False,files_factory=lambda:[discord.File(graph_path,filename='acn-daily-diamonds.png')])
+        await bot.publisher.upsert(key, channel.id, content=f'Hi {creator.creator_name}! No LIVE hours reported this month yet.{report_label}',edit_existing=False)
         return None
     rendered = await render_creator_dashboard_files(creator_id)
     if rendered is None:
         return 'creator missing from the latest import'
     output_path, creator_name = rendered
     await bot.publisher.upsert(key, channel.id, content=f'Aether stats for {creator_name}{report_label}', edit_existing=False,
-        files_factory=lambda: [discord.File(output_path, filename='acn-stats.png'),discord.File(graph_path,filename='acn-daily-diamonds.png')])
+        files_factory=lambda: [discord.File(output_path, filename='acn-stats.png')])
     return None
 
 
@@ -532,9 +541,7 @@ async def stats_command(interaction: discord.Interaction, creator_name: str) -> 
             return
 
         output_path, _creator_name = rendered
-        graph_path=DATA_DIR/f'acn-daily-{hashlib.sha256(creator.creator_id.encode()).hexdigest()[:20]}.png'
-        await asyncio.to_thread(render_three_day_graph,creator,bot.database.creator_history(creator.creator_id),graph_path)
-        await interaction.followup.send(files=[discord.File(output_path, filename=f"acn-{creator.creator_id}.png"),discord.File(graph_path,filename='acn-daily-diamonds.png')])
+        await interaction.followup.send(files=[discord.File(output_path, filename=f"acn-{creator.creator_id}.png")])
 
 @stats_command.autocomplete("creator_name")
 async def stats_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -684,6 +691,45 @@ async def set_leaderboard_channel_command(interaction: discord.Interaction, chan
 async def set_automation_channel_command(interaction: discord.Interaction, purpose: app_commands.Choice[str], channel: discord.TextChannel):
     bot.database.set_automation_channel(purpose.value, channel.id, interaction.user.id)
     await interaction.response.send_message(f'{purpose.name} channel: {channel.mention}', ephemeral=True)
+
+
+@bot.tree.command(name='manager-summary', description='Send or refresh the latest month-to-date manager summary now.')
+@app_commands.check(bot_controller_check)
+async def manager_summary_command(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    if bot.automation_lock.locked():
+        await interaction.followup.send('A report is being processed. Try /manager-summary again when it finishes.', ephemeral=True)
+        return
+    async with bot.automation_lock:
+        latest = bot.database.latest_import()
+        if not latest:
+            await interaction.followup.send('No creator report is available yet. Import a report first.', ephemeral=True)
+            return
+        try:
+            pages = await bot.manager_reports.publish(report_date=latest['report_date'], daily=True)
+        except Exception as error:
+            logging.warning('Manual manager summary failed (%s).', type(error).__name__)
+            await interaction.followup.send('Could not send the manager summary. Check the website connection and the bot permissions in <#1554887728183640158>, then retry.', ephemeral=True)
+            return
+        if not pages:
+            await interaction.followup.send('The latest report is not available on the website yet. Wait for sync and try again.', ephemeral=True)
+            return
+    await interaction.followup.send(f'Manager summary sent or refreshed in <#1554887728183640158> using the report dated {latest["report_date"]}.', ephemeral=True)
+
+
+@bot.tree.command(name='set-team-target', description='Set the agency monthly diamond target for the manager summary.')
+@app_commands.check(bot_controller_check)
+async def set_team_target_command(interaction: discord.Interaction, amount: app_commands.Range[int, 0, 9007199254740991], month: str | None = None):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    month = month or datetime.now(ZoneInfo('Europe/London')).strftime('%Y-%m')
+    try:
+        bot.database.set_team_diamonds(month, 'target', amount, interaction.user.id)
+    except ValueError:
+        await interaction.response.send_message('Use a month in YYYY-MM format, for example 2026-10.', ephemeral=True)
+        return
+    bot.manager_reports.digest = None
+    await interaction.response.send_message(f'{month} agency monthly target saved: {amount:,} diamonds. Manager rows continue to use combined creator reports.', ephemeral=True)
 
 
 @bot.tree.command(name='aether-status', description='Show import, channel, leaderboard and website integration status.')

@@ -12,6 +12,11 @@ def utcnow():
 class AutomationStore:
     def init_automation(self):
         statements = (
+            """CREATE TABLE IF NOT EXISTS manager_month_settings (
+                month TEXT PRIMARY KEY, target INTEGER,
+                updated_by INTEGER NOT NULL, updated_at TEXT NOT NULL)""",
+            """CREATE TABLE IF NOT EXISTS manager_daily_delivery (
+                report_date TEXT PRIMARY KEY, import_id INTEGER NOT NULL, completed_at TEXT NOT NULL)""",
             """CREATE TABLE IF NOT EXISTS automation_channels (
                 purpose TEXT PRIMARY KEY, channel_id INTEGER NOT NULL,
                 updated_by INTEGER NOT NULL, updated_at TEXT NOT NULL)""",
@@ -59,6 +64,23 @@ class AutomationStore:
                 ON CONFLICT(purpose) DO UPDATE SET channel_id=excluded.channel_id,
                 updated_by=excluded.updated_by, updated_at=excluded.updated_at""",
                 (purpose, channel_id, updated_by, utcnow()))
+
+    def set_team_diamonds(self, month, kind, amount, updated_by):
+        from datetime import date
+        if date.fromisoformat(month + '-01').strftime('%Y-%m') != month:
+            raise ValueError('Use YYYY-MM for the month.')
+        if kind != 'target' or not isinstance(amount, int) or amount < 0:
+            raise ValueError('Choose target and a non-negative whole number.')
+        with self.connect() as conn:
+            conn.execute(f'''INSERT INTO manager_month_settings(month,{kind},updated_by,updated_at)
+                VALUES (?,?,?,?) ON CONFLICT(month) DO UPDATE SET
+                {kind}=excluded.{kind},updated_by=excluded.updated_by,updated_at=excluded.updated_at''',
+                (month, amount, updated_by, utcnow()))
+
+    def team_diamonds(self, month):
+        with self.connect() as conn:
+            row = conn.execute('SELECT * FROM manager_month_settings WHERE month=?', (month,)).fetchone()
+            return dict(row) if row else {}
 
     def automation_channels(self):
         with self.connect() as conn:

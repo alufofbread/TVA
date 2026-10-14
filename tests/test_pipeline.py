@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import json
 import tempfile
 import unittest
@@ -44,7 +44,7 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(summary['leaderboard_updated'])
         self.assertEqual(self.db.latest_import()['report_date'], '2026-09-12')
         self.assertEqual(len(self.channel.messages), 2)
-        self.assertEqual(len(list(self.root.glob('acn-*.png'))), 3)
+        self.assertEqual(len(list(self.root.glob('acn-*.png'))), 2)
         await self.module.process_report(self.interaction, self.attachment)
         self.assertEqual(len(self.channel.messages), 2)
         self.assertEqual(len(self.db.creator_history('alice')), 1)

@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from dashboard.daily_graph import last_three_days, render_three_day_graph
-from manager_reports import build_reports, ManagerReports
+from manager_reports import build_reports, enrich_summary, ManagerReports
 from database import Database
 from delivery import MessagePublisher
 from test_delivery import FakeChannel
@@ -36,13 +36,36 @@ class GraphTests(unittest.TestCase):
         self.assertIn('Unavailable',build_reports(report)[0].fields[0].value)
 
 class ReportDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    def test_manager_totals_daily_activity_and_missing_baseline(self):
+        report = data(2)
+        roster = [dict(id='alice', manager='Manager 0'), dict(id='bob', manager='Manager 1')]
+        history = [dict(report_date='2026-10-11', diamonds=80, hours=1, days=1),
+                   dict(report_date='2026-10-12', diamonds=100, hours=2, days=2)]
+        db = SimpleNamespace(creator_history=lambda creator: history if creator == 'alice' else history[1:])
+        enriched = enrich_summary(report, roster, db)
+        first, second = enriched['managers']
+        self.assertEqual(first['daily'], dict(diamonds=20, went_live=1, valid_days=1, active_rate=1))
+        self.assertIsNone(second['daily']['diamonds'])
+        self.assertEqual(first['creator_count'], 1)
+        self.assertEqual(first['valid_days'], 2)
+        history[1]['days'] = 1
+        without_valid_day = enrich_summary(report, roster, db)['managers'][0]
+        self.assertEqual(without_valid_day['daily']['went_live'], 1)
+        self.assertEqual(without_valid_day['daily']['active_rate'], 0)
+        from dashboard.manager_summary import render_manager_summary
+        from io import BytesIO
+        pages = render_manager_summary(enriched)
+        with Image.open(BytesIO(pages[0])) as image:
+            self.assertEqual(image.width, 1024)
+            self.assertGreater(image.height, 1000)
+
     async def test_restart_updates_same_message_and_manual_is_suppressed(self):
         with tempfile.TemporaryDirectory() as root:
             db=Database(Path(root)/'db.sqlite');channel=FakeChannel()
             publisher=MessagePublisher(SimpleNamespace(user=SimpleNamespace(id=1)),db)
             publisher.channel=AsyncMock(return_value=channel)
             client=SimpleNamespace(database=db,publisher=publisher)
-            with patch.object(db,'automation_channels',return_value={'manager-performance':10}),patch.object(db,'latest_import',return_value={'report_date':'2026-10-12'}),patch('manager_reports.rpc',return_value=data()):
+            with patch.object(db,'automation_channels',return_value={'manager-performance':10}),patch.object(db,'latest_import',return_value={'report_date':'2026-10-12'}),patch('manager_reports.rpc',side_effect=lambda name, **kwargs: data() if name == 'discord_manager_performance' else []):
                 report=ManagerReports(client)
                 self.assertEqual(await report.publish(),1)
                 self.assertEqual(await report.publish(),0)
@@ -89,7 +112,7 @@ class ManagerReportRecoveryTests(unittest.IsolatedAsyncioTestCase):
             publisher=MessagePublisher(SimpleNamespace(user=SimpleNamespace(id=1)),db);publisher.channel=AsyncMock(return_value=channel)
             client=SimpleNamespace(database=db,publisher=publisher);report=ManagerReports(client)
             current=data(21)
-            with patch.object(db,'automation_channels',return_value={'manager-performance':10}),patch.object(db,'latest_import',return_value={'report_date':'2026-10-12'}),patch('manager_reports.rpc',side_effect=lambda *a,**k:current):
+            with patch.object(db,'automation_channels',return_value={'manager-performance':10}),patch.object(db,'latest_import',return_value={'report_date':'2026-10-12'}),patch('manager_reports.rpc',side_effect=lambda name,**kwargs:current if name=='discord_manager_performance' else []):
                 real=publisher.upsert
                 async def uncertain(key,*args,**kwargs):
                     result=await real(key,*args,**kwargs)
