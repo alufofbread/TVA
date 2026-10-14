@@ -134,6 +134,8 @@ class ManagerReports:
         for index,embed in enumerate(pages):
             embed.clear_fields()
             embed.description=f"Combined creator performance | {data['start']} to {data['end']} (UTC)"
+            if any(manager['daily'].get('went_live_partial') for manager in data['managers']):
+                embed.description += '\n+ beside a LIVE count means a verified minimum; some activity history is missing.'
             embed.set_image(url='attachment://aether-manager-summary.png')
             await self.client.publisher.upsert(f'{prefix}:{index}',channel,embed=embed,
                 edit_existing=not daily,

@@ -19,3 +19,5 @@ The automated Manager Summary is sent to Discord text channel `15548877281836401
 Vex (Administrator or Bot Controller role) can run `/set-team-target amount:1354619 month:2026-10`. The month defaults to the current UK month. Targets persist per month and override the website agency target; actual diamonds remain calculated from creator reports. Restart/deploy the bot to register the command and activate delivery.
 
 `/manager-summary` sends a fresh image on every manual request. Automatic delivery posts a separate image per report date and preserves previous posts, including on retries and restarts.
+
+Manager Summary artwork now follows the supplied TEAM VEXTAL reference: fixed 1024x1536 composition for up to five managers, matching header/card/table coordinates, portable bundled Barlow typography, gradient outlines and icons, and a percentage-filled progress bar. It retains the reference proportions for smaller teams without inventing manager rows. Larger teams expand or paginate. The font license files ship with the renderer. LIVE-history qualifiers are shown in the Discord message rather than adding an unreferenced footer to the artwork.

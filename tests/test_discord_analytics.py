@@ -53,6 +53,16 @@ class ReportDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['managers'][0]['daily']['went_live'],1)
         self.assertTrue(result['managers'][0]['daily']['went_live_partial'])
 
+    def test_display_name_does_not_change_manager_team_matching(self):
+        report = data()
+        report['managers'][0].update(id='manager-id',username='vextal.manager',name='Vextal')
+        roster = [dict(id='creator',manager_id='manager-id',manager='vextal.manager')]
+        history = [dict(report_date='2026-10-11',diamonds=100,hours=1,days=1),
+                   dict(report_date='2026-10-12',diamonds=200,hours=2,days=2)]
+        result = enrich_summary(report,roster,SimpleNamespace(creator_history=lambda creator:history))
+        self.assertEqual(result['managers'][0]['name'],'Vextal')
+        self.assertEqual(result['managers'][0]['daily']['diamonds'],100)
+
     async def test_daily_posts_preserve_previous_images_and_next_date_sends_new(self):
         with tempfile.TemporaryDirectory() as root:
             db = Database(Path(root)/'db.sqlite')
