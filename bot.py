@@ -693,7 +693,7 @@ async def set_automation_channel_command(interaction: discord.Interaction, purpo
     await interaction.response.send_message(f'{purpose.name} channel: {channel.mention}', ephemeral=True)
 
 
-@bot.tree.command(name='manager-summary', description='Send or refresh the latest month-to-date manager summary now.')
+@bot.tree.command(name='manager-summary', description='Send the latest daily month-to-date manager summary.')
 @app_commands.check(bot_controller_check)
 async def manager_summary_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
@@ -706,7 +706,7 @@ async def manager_summary_command(interaction: discord.Interaction):
             await interaction.followup.send('No creator report is available yet. Import a report first.', ephemeral=True)
             return
         try:
-            pages = await bot.manager_reports.publish(report_date=latest['report_date'], daily=True)
+            pages = await bot.manager_reports.publish(report_date=latest['report_date'], daily=True, manual=True)
         except Exception as error:
             logging.warning('Manual manager summary failed (%s).', type(error).__name__)
             await interaction.followup.send('Could not send the manager summary. Check the website connection and the bot permissions in <#1554887728183640158>, then retry.', ephemeral=True)
@@ -714,7 +714,7 @@ async def manager_summary_command(interaction: discord.Interaction):
         if not pages:
             await interaction.followup.send('The latest report is not available on the website yet. Wait for sync and try again.', ephemeral=True)
             return
-    await interaction.followup.send(f'Manager summary sent or refreshed in <#1554887728183640158> using the report dated {latest["report_date"]}.', ephemeral=True)
+    await interaction.followup.send(f'New manager summary sent to <#1554887728183640158> for {latest["report_date"]}. Earlier posts are preserved.', ephemeral=True)
 
 
 @bot.tree.command(name='set-team-target', description='Set the agency monthly diamond target for the manager summary.')

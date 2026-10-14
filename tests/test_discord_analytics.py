@@ -36,6 +36,45 @@ class GraphTests(unittest.TestCase):
         self.assertIn('Unavailable',build_reports(report)[0].fields[0].value)
 
 class ReportDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    def test_new_zero_creator_does_not_hide_team_daily_earnings(self):
+        report = data()
+        report['managers'][0]['totals']['expected'] = 2
+        roster = [dict(id=name, manager='Manager 0') for name in ('active', 'new')]
+        histories = {
+            'active': [dict(report_date='2026-10-11',diamonds=10000,hours=10,days=3),
+                       dict(report_date='2026-10-12',diamonds=19821,hours=12,days=4)],
+            'new': [dict(report_date='2026-10-12',diamonds=0,hours=0,days=0)]}
+        result = enrich_summary(report, roster, SimpleNamespace(creator_history=lambda creator: histories[creator]))
+        self.assertEqual(result['managers'][0]['daily'],
+                         dict(diamonds=9821,went_live=1,valid_days=1,active_rate=.5))
+        histories['new'][0]['hours'] = 1973 / 3600
+        result = enrich_summary(report, roster, SimpleNamespace(creator_history=lambda creator: histories[creator]))
+        self.assertEqual(result['managers'][0]['daily']['diamonds'],9821)
+        self.assertEqual(result['managers'][0]['daily']['went_live'],1)
+        self.assertTrue(result['managers'][0]['daily']['went_live_partial'])
+
+    async def test_daily_posts_preserve_previous_images_and_next_date_sends_new(self):
+        with tempfile.TemporaryDirectory() as root:
+            db = Database(Path(root)/'db.sqlite')
+            channel = FakeChannel()
+            publisher = MessagePublisher(SimpleNamespace(user=SimpleNamespace(id=1)), db)
+            publisher.channel = AsyncMock(return_value=channel)
+            reports = ManagerReports(SimpleNamespace(database=db, publisher=publisher))
+            current = data()
+            with patch('manager_reports.rpc',side_effect=lambda name,**kwargs: current if name=='discord_manager_performance' else []):
+                await reports.publish(report_date=current['end'], daily=True)
+                await reports.publish(report_date=current['end'], daily=True)
+                self.assertEqual(channel.send.await_count,1)
+                channel.messages[0].edit.assert_not_awaited()
+                current['end'] = '2026-10-13'
+                await reports.publish(report_date=current['end'], daily=True)
+                self.assertEqual(channel.send.await_count,2)
+                channel.messages[0].edit.assert_not_awaited()
+                await reports.publish(report_date=current['end'],daily=True,manual=True)
+                await reports.publish(report_date=current['end'],daily=True,manual=True)
+                self.assertEqual(channel.send.await_count,4)
+                self.assertTrue(all(message.edit.await_count==0 for message in channel.messages))
+
     def test_manager_totals_daily_activity_and_missing_baseline(self):
         report = data(2)
         roster = [dict(id='alice', manager='Manager 0'), dict(id='bob', manager='Manager 1')]

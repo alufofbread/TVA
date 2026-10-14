@@ -7,6 +7,7 @@ import discord
 from dashboard.manager_summary import render_manager_summary
 from datetime import date, timedelta
 from automation_store import utcnow
+from uuid import uuid4
 from onboarding import rpc
 
 
@@ -57,22 +58,27 @@ def enrich_summary(data, roster, database):
             previous = next((row for row in history if row['report_date'] == previous_date), None)
             if current:
                 month_days.append(current.get('days'))
-            if not current or (cutoff.day != 1 and not previous):
+            if not current:
                 continue
-            baseline = previous if cutoff.day != 1 else dict(diamonds=0, hours=0, days=0)
-            if any(current.get(key) is None or baseline.get(key) is None for key in ('diamonds', 'hours', 'days')):
-                continue
-            delta = {key: current[key] - baseline[key] for key in ('diamonds', 'hours', 'days')}
-            if any(value < 0 for value in delta.values()):
-                continue
+            baseline = (previous or {}) if cutoff.day != 1 else dict(diamonds=0, hours=0, days=0)
+            delta = {}
+            for key in ('diamonds', 'hours', 'days'):
+                value, before = current.get(key), baseline.get(key)
+                # A zero month-to-date metric proves a zero day even for a newly
+                # reported creator. Nonzero values still need a real baseline.
+                difference = 0 if value == 0 else value - before if value is not None and before is not None else None
+                delta[key] = difference if difference is not None and difference >= 0 else None
             daily.append(delta)
         complete = bool(members) and len(daily) == len(members) == expected
+        available = lambda key: complete and all(row[key] is not None for row in daily)
         manager['daily'] = {
-            'diamonds': sum(row['diamonds'] for row in daily) if complete else None,
-            'went_live': sum(row['hours'] > 0 for row in daily) if complete else None,
-            'valid_days': sum(row['days'] for row in daily) if complete else None,
-            'active_rate': sum(row['days'] > 0 for row in daily) / len(members) if complete else None,
+            'diamonds': sum(row['diamonds'] for row in daily) if available('diamonds') else None,
+            'went_live': sum((row['hours'] or 0) > 0 or (row['diamonds'] or 0) > 0 or (row['days'] or 0) > 0 for row in daily) if complete else None,
+            'valid_days': sum(row['days'] for row in daily) if available('days') else None,
+            'active_rate': sum(row['days'] > 0 for row in daily) / len(members) if available('days') else None,
         }
+        if complete and not available('hours'):
+            manager['daily']['went_live_partial'] = True
         manager['valid_days'] = (sum(month_days) if members and len(month_days) == len(members) == expected
                                  and all(value is not None for value in month_days) else None)
     data['managers'].sort(key=lambda manager: (manager['totals']['diamonds'] is None,
@@ -102,7 +108,7 @@ class ManagerReports:
                              (latest['report_date'], latest['id'], utcnow()))
         return pages
 
-    async def publish(self, report_date=None, daily=False):
+    async def publish(self, report_date=None, daily=False, manual=False):
         db=self.client.database
         channel=1554887728183640158 if daily else db.automation_channels().get('manager-performance')
         latest=db.latest_import()
@@ -121,6 +127,8 @@ class ManagerReports:
         digest=hashlib.sha256(json.dumps([channel,data],sort_keys=True).encode()).hexdigest()
         if digest==self.digest and not daily:return 0
         prefix = f'manager-performance:{report_date}' if daily else 'manager-performance'
+        if manual:
+            prefix += f':manual-{uuid4().hex}'
         pages=build_reports(data)
         images=await asyncio.to_thread(render_manager_summary,data)
         for index,embed in enumerate(pages):
@@ -128,6 +136,7 @@ class ManagerReports:
             embed.description=f"Combined creator performance | {data['start']} to {data['end']} (UTC)"
             embed.set_image(url='attachment://aether-manager-summary.png')
             await self.client.publisher.upsert(f'{prefix}:{index}',channel,embed=embed,
+                edit_existing=not daily,
                 files_factory=lambda index=index: [discord.File(BytesIO(images[index]),filename='aether-manager-summary.png')])
         with db.connect() as conn:
             old=[r[0] for r in conn.execute("SELECT message_key FROM discord_messages WHERE message_key LIKE ? AND status<>'deleted'", (prefix+':%',)) if r[0].count(':')==prefix.count(':')+1]

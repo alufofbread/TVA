@@ -13,7 +13,7 @@ class ManagerCommandTests(unittest.IsolatedAsyncioTestCase):
         interaction = self.interaction()
         with patch.object(bot.bot, 'automation_lock', asyncio.Lock()), patch.object(bot.bot.database, 'latest_import', return_value={'report_date': '2026-10-14', 'delivery_status': 'manual'}), patch.object(bot.bot.manager_reports, 'publish', new=AsyncMock(return_value=1)) as publish:
             await bot.manager_summary_command.callback(interaction)
-        publish.assert_awaited_once_with(report_date='2026-10-14', daily=True)
+        publish.assert_awaited_once_with(report_date='2026-10-14', daily=True, manual=True)
         self.assertIn('1554887728183640158', interaction.followup.send.call_args.args[0])
 
     async def test_no_report_explains_import_is_needed(self):
