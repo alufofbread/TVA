@@ -10,3 +10,7 @@ data/*.png
 
 data/
 tests/
+
+.env.*
+!.env.example
+.github/

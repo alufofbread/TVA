@@ -384,7 +384,7 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
         avatar_url = clean_optional_text(row.get("avatar_url", ""))
         join_date_value = parse_period_end(row.get("join_date"))
         join_date = join_date_value.isoformat() if join_date_value else ""
-        cached_avatar = cache_avatar(creator_id, avatar_url) if cache_avatars else None
+        cached_avatar = cache_avatar(creator_id, avatar_url, username=row["creator_name"]) if cache_avatars else None
         if cached_avatar:
             avatar_url, avatar_path = cached_avatar
         else:

@@ -13,6 +13,9 @@ import discord
 from discord import app_commands
 
 from avatars import cache_avatar_bytes
+from website_avatars import refresh_website_avatars
+from dashboard.daily_graph import render_three_day_graph
+from manager_reports import ManagerReports
 from config import BOT_TOKEN, DATABASE_PATH, DATA_DIR, ENV_PATH, GUILD_ID, UPLOAD_DIR, ensure_directories
 from dashboard.creator_stats import render_creator_stats
 from dashboard.leaderboard import render_leaderboard
@@ -100,12 +103,13 @@ class AetherBot(discord.Client):
         self.database = Database()
         self.automation_lock = asyncio.Lock()
         self.publisher = MessagePublisher(self, self.database)
+        self.manager_reports = ManagerReports(self)
 
     async def setup_hook(self) -> None:
         from command_startup import register_commands
         await register_commands(self, get_required_guild(), COMMAND_SYNC_TIMEOUT_SECONDS)
         from website_sync import worker
-        self.website_sync_task = asyncio.create_task(worker(self.database))
+        self.website_sync_task = asyncio.create_task(worker(self.database, self.publish_manager_reports))
         from onboarding import worker as onboarding_worker
         self.onboarding_task = asyncio.create_task(onboarding_worker(self))
         from config import INTEGRATION_SECRET, INTEGRATION_HOST, INTEGRATION_PORT
@@ -114,6 +118,12 @@ class AetherBot(discord.Client):
         if INTEGRATION_SECRET:
             self.integration = IntegrationService(self, self.database, self.publisher, INTEGRATION_SECRET, admin_log)
             await self.integration.start(INTEGRATION_HOST, INTEGRATION_PORT)
+
+    async def publish_manager_reports(self):
+        if not self.is_ready() or self.automation_lock.locked():return
+        async with self.automation_lock:
+            try:await self.manager_reports.publish()
+            except Exception as error:logging.warning('Manager report pending (%s); will retry after website sync.',type(error).__name__)
 
     async def close(self):
         onboarding_task = getattr(self, 'onboarding_task', None)
@@ -154,6 +164,7 @@ def creator_autocomplete(current: str) -> list[app_commands.Choice[str]]:
 
 
 async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, str] | None:
+    await asyncio.to_thread(refresh_website_avatars, bot.database)
     creator = bot.database.find_creator(creator_id)
     if creator is None:
         return None
@@ -171,16 +182,18 @@ async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: s
     creator = bot.database.find_creator(creator_id)
     if creator is None:
         return 'creator missing from the latest import'
+    graph_path=DATA_DIR/f'acn-daily-{hashlib.sha256(creator_id.encode()).hexdigest()[:20]}.png'
+    await asyncio.to_thread(render_three_day_graph,creator,bot.database.creator_history(creator_id),graph_path)
     key = f'creator:{creator_id}'
     if creator.hours <= 0:
-        await bot.publisher.upsert(key, channel.id, content=f'Hi {creator.creator_name}! No LIVE hours reported this month yet.')
+        await bot.publisher.upsert(key, channel.id, content=f'Hi {creator.creator_name}! No LIVE hours reported this month yet.',files_factory=lambda:[discord.File(graph_path,filename='acn-daily-diamonds.png')])
         return None
     rendered = await render_creator_dashboard_files(creator_id)
     if rendered is None:
         return 'creator missing from the latest import'
     output_path, creator_name = rendered
     await bot.publisher.upsert(key, channel.id, content=f'Latest Aether stats for {creator_name}',
-        files_factory=lambda: [discord.File(output_path, filename='acn-stats.png')])
+        files_factory=lambda: [discord.File(output_path, filename='acn-stats.png'),discord.File(graph_path,filename='acn-daily-diamonds.png')])
     return None
 
 
@@ -211,6 +224,7 @@ async def send_auto_stats_to_creator_channels(max_channels: int | None = None) -
 
 
 async def render_leaderboard_file() -> Path | None:
+    await asyncio.to_thread(refresh_website_avatars,bot.database)
     creators = bot.database.get_creators()
     if not creators:
         return None
@@ -515,7 +529,9 @@ async def stats_command(interaction: discord.Interaction, creator_name: str) -> 
             return
 
         output_path, _creator_name = rendered
-        await interaction.followup.send(file=discord.File(output_path, filename=f"acn-{creator.creator_id}.png"))
+        graph_path=DATA_DIR/f'acn-daily-{hashlib.sha256(creator.creator_id.encode()).hexdigest()[:20]}.png'
+        await asyncio.to_thread(render_three_day_graph,creator,bot.database.creator_history(creator.creator_id),graph_path)
+        await interaction.followup.send(files=[discord.File(output_path, filename=f"acn-{creator.creator_id}.png"),discord.File(graph_path,filename='acn-daily-diamonds.png')])
 
 @stats_command.autocomplete("creator_name")
 async def stats_creator_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
