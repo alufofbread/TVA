@@ -178,26 +178,29 @@ async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, str] | 
     return output_path, creator.creator_name
 
 
-async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: str) -> str | None:
+async def send_creator_dashboard(channel: discord.abc.Messageable, creator_id: str, import_id: int | None = None) -> str | None:
     creator = bot.database.find_creator(creator_id)
     if creator is None:
         return 'creator missing from the latest import'
     graph_path=DATA_DIR/f'acn-daily-{hashlib.sha256(creator_id.encode()).hexdigest()[:20]}.png'
     await asyncio.to_thread(render_three_day_graph,creator,bot.database.creator_history(creator_id),graph_path)
-    key = f'creator:{creator_id}'
+    latest = bot.database.latest_import()
+    import_id = import_id if import_id is not None else latest['id'] if latest else None
+    key = f'creator:{creator_id}:import:{import_id}' if import_id is not None else f'creator:{creator_id}:request:{uuid4().hex}'
+    report_label = f" | Report {latest['report_date']}" if latest and latest['id'] == import_id else ''
     if creator.hours <= 0:
-        await bot.publisher.upsert(key, channel.id, content=f'Hi {creator.creator_name}! No LIVE hours reported this month yet.',files_factory=lambda:[discord.File(graph_path,filename='acn-daily-diamonds.png')])
+        await bot.publisher.upsert(key, channel.id, content=f'Hi {creator.creator_name}! No LIVE hours reported this month yet.{report_label}',edit_existing=False,files_factory=lambda:[discord.File(graph_path,filename='acn-daily-diamonds.png')])
         return None
     rendered = await render_creator_dashboard_files(creator_id)
     if rendered is None:
         return 'creator missing from the latest import'
     output_path, creator_name = rendered
-    await bot.publisher.upsert(key, channel.id, content=f'Latest Aether stats for {creator_name}',
+    await bot.publisher.upsert(key, channel.id, content=f'Aether stats for {creator_name}{report_label}', edit_existing=False,
         files_factory=lambda: [discord.File(output_path, filename='acn-stats.png'),discord.File(graph_path,filename='acn-daily-diamonds.png')])
     return None
 
 
-async def send_auto_stats_to_creator_channels(max_channels: int | None = None) -> tuple[int, list[str]]:
+async def send_auto_stats_to_creator_channels(max_channels: int | None = None, *, import_id: int | None = None) -> tuple[int, list[str]]:
     assignments = bot.database.get_creator_channels()
     if not assignments:
         return 0, []
@@ -208,7 +211,7 @@ async def send_auto_stats_to_creator_channels(max_channels: int | None = None) -
     for assignment in selected_assignments:
         try:
             channel = await bot.publisher.channel(assignment.channel_id)
-            error = await send_creator_dashboard(channel, assignment.creator_id)
+            error = await send_creator_dashboard(channel, assignment.creator_id, import_id)
             if error:
                 failures.append(f'{assignment.creator_name}: {error}')
                 continue
@@ -460,7 +463,7 @@ async def process_report(interaction, spreadsheet, report_date=None, automatic=T
         missing = bot.database.missing_creator_channels()
         sent, failures, leaderboard, achievements = 0, [], 0, 0
         if automatic:
-            sent, failures = await send_auto_stats_to_creator_channels()
+            sent, failures = await send_auto_stats_to_creator_channels(import_id=result.import_id)
             leaderboard, board_failures = await send_saved_leaderboards()
             failures.extend(board_failures)
             try:
