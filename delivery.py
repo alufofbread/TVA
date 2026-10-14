@@ -41,12 +41,13 @@ class MessagePublisher:
                 return message
         return None
 
-    async def upsert(self, key, channel_id, *, content='', embed=None, view=None, files_factory=None):
+    async def upsert(self, key, channel_id, *, content='', embed=None, view=None, files_factory=None, edit_existing=True):
         async with self.lock:
             record = self.database.message_record(key)
             message = await self._recover(record) if record else None
             if record and record['channel_id'] != channel_id and message:
-                await message.delete()
+                if edit_existing:
+                    await message.delete()
                 message = None
             if not record or record['channel_id'] != channel_id or record['status'] == 'deleted' or (record['message_id'] and message is None):
                 marker = 'ACN:' + hashlib.sha256((key + uuid4().hex).encode()).hexdigest()[:20]
@@ -56,6 +57,12 @@ class MessagePublisher:
                         (message_key, channel_id, marker, started_at, updated_at) VALUES (?, ?, ?, ?, ?)''',
                         (key, channel_id, marker, now, now))
                 record = self.database.message_record(key)
+            if message and not edit_existing:
+                # Recover an uncertain send without changing an earlier import.
+                with self.database.connect() as conn:
+                    conn.execute("UPDATE discord_messages SET message_id=?, status='sent', error=NULL, updated_at=? WHERE message_key=?",
+                                 (message.id, utcnow(), key))
+                return message
             if embed:
                 embed = embed.copy()
                 embed.set_footer(text=f'Aether Creator Network | {record["marker"]}')

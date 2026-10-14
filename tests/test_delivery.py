@@ -104,3 +104,33 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         await self.publisher.upsert('leaderboard', 20, content='moved')
         first.delete.assert_awaited_once()
         self.assertEqual(self.db.message_record('leaderboard')['channel_id'], 20)
+
+    async def test_import_messages_preserve_previous_stats_and_skip_retries(self):
+        first = await self.publisher.upsert('creator:alice:import:1', 10, content='Report 1', edit_existing=False)
+        second = await self.publisher.upsert('creator:alice:import:2', 10, content='Report 2', edit_existing=False)
+        retry = await self.publisher.upsert('creator:alice:import:1', 10, content='Changed retry', edit_existing=False)
+        self.assertNotEqual(first.id, second.id)
+        self.assertEqual(first.id, retry.id)
+        self.assertIn('Report 1', first.content)
+        self.assertEqual(self.channel.send.await_count, 2)
+        first.edit.assert_not_awaited()
+        second.edit.assert_not_awaited()
+
+    async def test_append_recovers_uncertain_send_without_editing_or_opening_files(self):
+        first = await self.publisher.upsert('creator:alice:import:1', 10, content='Report 1', edit_existing=False)
+        with self.db.connect() as conn:
+            conn.execute("UPDATE discord_messages SET message_id=NULL, status='pending'")
+        files = unittest.mock.Mock()
+        retry = await self.publisher.upsert('creator:alice:import:1', 10, content='Retry', files_factory=files, edit_existing=False)
+        self.assertEqual(first.id, retry.id)
+        self.assertEqual(self.db.message_record('creator:alice:import:1')['message_id'], first.id)
+        self.channel.send.assert_awaited_once()
+        first.edit.assert_not_awaited()
+        files.assert_not_called()
+
+    async def test_append_channel_change_leaves_original_stats_intact(self):
+        first = await self.publisher.upsert('creator:alice:import:1', 10, content='Report 1', edit_existing=False)
+        second = await self.publisher.upsert('creator:alice:import:1', 20, content='Report 1', edit_existing=False)
+        self.assertNotEqual(first.id,second.id)
+        first.delete.assert_not_awaited()
+        first.edit.assert_not_awaited()

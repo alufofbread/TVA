@@ -68,3 +68,30 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.channel.send.assert_not_awaited()
         self.assertEqual(len(self.db.creator_history('alice')), 1)
         self.assertEqual(self.db.latest_import()['delivery_status'], 'manual')
+
+    async def test_each_new_import_posts_new_creator_stats_but_keeps_leaderboard(self):
+        await self.module.process_report(self.interaction, self.attachment)
+        first = self.channel.messages[0]
+        first_content = first.content
+        async def save_next(path):
+            path.write_text('Creator ID,Creator,Diamonds,Hours,Days,Battles,Data period\nalice,Alice,130000,32,13,10,2026-09-13\nbob,Bob,2500,3,2,2,2026-09-13\n')
+        self.attachment.save.side_effect = save_next
+        await self.module.process_report(self.interaction, self.attachment)
+        self.assertEqual(len(self.channel.messages), 3)
+        self.assertEqual(first.content, first_content)
+        first.edit.assert_not_awaited()
+        self.assertIn('2026-09-13', self.channel.messages[-1].content)
+        await self.module.process_report(self.interaction, self.attachment)
+        self.assertEqual(len(self.channel.messages), 3)
+        self.channel.messages[-1].edit.assert_not_awaited()
+
+    async def test_zero_hours_stats_also_get_new_import_messages(self):
+        async def save_zero(path):
+            path.write_text('Creator ID,Creator,Diamonds,Hours,Days,Battles,Data period\nalice,Alice,0,0,0,0,2026-09-14\n')
+        await self.module.process_report(self.interaction, self.attachment)
+        first = self.channel.messages[0]
+        self.attachment.save.side_effect = save_zero
+        await self.module.process_report(self.interaction, self.attachment)
+        self.assertEqual(len(self.channel.messages), 3)
+        self.assertIn('No LIVE hours', self.channel.messages[-1].content)
+        first.edit.assert_not_awaited()
