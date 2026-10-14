@@ -96,7 +96,7 @@ INTEGRATION_SECRET = os.getenv("AETHER_INTEGRATION_SECRET", "")
 INTEGRATION_HOST = os.getenv("INTEGRATION_HOST", "0.0.0.0")
 INTEGRATION_PORT = int(os.getenv("PORT", os.getenv("INTEGRATION_PORT", "8080")))
 MAX_REPORT_BYTES = 20 * 1024 * 1024
-CHANNEL_PURPOSES = ("leaderboard", "wins", "events", "campaigns", "announcements", "logs")
+CHANNEL_PURPOSES = ("leaderboard", "manager-performance", "wins", "events", "campaigns", "announcements", "logs")
 ANNOUNCE_ACHIEVEMENTS = frozenset(filter(None, (v.strip() for v in os.getenv("ANNOUNCE_ACHIEVEMENTS", "").split(","))))
 DIAMOND_MILESTONES = tuple(sorted({int(v) for v in os.getenv("DIAMOND_MILESTONES", "100000,250000,500000,1000000,2500000,5000000").split(",") if v.strip()}))
 

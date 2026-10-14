@@ -86,12 +86,14 @@ def sync_channel_mappings(database):
             database.set_creator_channel(member['id'],int(member['channel_id']),int(guild))
 
 
-async def worker(database):
+async def worker(database,on_synced=None):
     delay = 30
     while True:
         try:
             result = await asyncio.to_thread(flush, database)
-            if result=='synced':await asyncio.to_thread(sync_channel_mappings,database)
+            if result=='synced':
+                await asyncio.to_thread(sync_channel_mappings,database)
+                if on_synced:await on_synced()
             delay = min(delay * 2, 300) if result == 'pending' else 30
         except Exception:
             logging.warning('Website report sync configuration needs attention.')

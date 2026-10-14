@@ -10,3 +10,6 @@ data/avatars/*
 data/
 *.db-wal
 *.db-shm
+
+.env.*
+!.env.example

@@ -78,14 +78,14 @@ def find_tiktok_avatar_url(username: str) -> str | None:
     return None
 
 
-def cache_avatar(creator_id: str, avatar_url: str | None = None) -> tuple[str, str] | None:
-    username = creator_id.strip().lstrip("@")
+def cache_avatar(creator_id: str, avatar_url: str | None = None, username: str | None = None) -> tuple[str, str] | None:
+    username = (username or creator_id).strip().lstrip("@")
     source_url = (avatar_url or "").strip() or find_tiktok_avatar_url(username)
     if not source_url:
         return None
 
     ensure_directories()
-    avatar_path = AVATAR_DIR / f"{_safe_name(username)}.jpg"
+    avatar_path = AVATAR_DIR / f"{_safe_name(creator_id)}.jpg"
     try:
         image_bytes = _read_url(source_url)
         if len(image_bytes) > MAX_AVATAR_BYTES:
