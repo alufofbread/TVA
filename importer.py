@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from avatars import cache_avatar
+from report_identity import departed_creator_id
 from config import (
     INCENTIVE_TIERS,
     TIER_THRESHOLDS,
@@ -263,7 +264,7 @@ def _creator_id(name: str) -> str:
     return clean or hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
 
 
-def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, cache_avatars: bool = True, with_report_date: bool = False):
+def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, cache_avatars: bool = True, with_report_date: bool = False, with_departures: bool = False):
     df = _read_excel(path)
     columns = _detect_columns(df)
     df = df[list(columns.values())].rename(columns={v: k for k, v in columns.items()})
@@ -297,6 +298,20 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
         ]
         if not month_rows.empty:
             df = month_rows
+
+    departed_handles = []
+    if 'creator_id' in df.columns:
+        # A status message in Creator ID is not a replacement TikTok identity.
+        # The latest status controls whether a creator is in this snapshot.
+        ordering = df.sort_values('_period_end', na_position='first') if '_period_end' in df.columns else df
+        latest = ordering.groupby('creator_name', sort=False).tail(1)
+        departed = set(latest.loc[latest['creator_id'].apply(departed_creator_id), 'creator_name'])
+        departed_handles = sorted({str(name).strip().lstrip('@').lower() for name in departed})
+        if any(not re.fullmatch(r'[a-z0-9_.]{2,24}', handle) for handle in departed_handles):
+            raise ImportErrorWithContext('A departure row has an invalid TikTok username; correct the report before importing.')
+        df = df[~df['creator_name'].isin(departed) & ~df['creator_id'].apply(departed_creator_id)].copy()
+        if df.empty:
+            raise ImportErrorWithContext('This report has no active creator records after excluding TikTok departure status rows.')
 
     for metric in ("diamonds", "hours", "days", "battles"):
         df[metric] = df[metric].apply(parse_number)
@@ -418,17 +433,18 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
         if any(not math.isfinite(row[key]) or row[key] < 0 for key in ('diamonds', 'hours', 'days', 'battles', 'new_followers')):
             raise ImportErrorWithContext('Creator metrics must be finite, non-negative values.')
     file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-    return (creators, file_hash, report_date) if with_report_date else (creators, file_hash)
+    result = (creators, file_hash, report_date) if with_report_date else (creators, file_hash)
+    return (*result, departed_handles) if with_departures else result
 
 
 def import_spreadsheet(database, path: Path, report_date: date | None = None, publish: bool = True) -> ImportResult:
     from dataclasses import asdict
     from automation_store import utcnow
 
-    creators, file_hash, observed_on = load_creators_from_spreadsheet(path, report_date, with_report_date=True)
+    creators, file_hash, observed_on, departed_handles = load_creators_from_spreadsheet(path, report_date, with_report_date=True, with_departures=True)
     canonical = [{k: v for k, v in row.items() if k not in ('avatar_url', 'avatar_path')} for row in creators]
     snapshot_hash = hashlib.sha256(json.dumps(
-        {'report_date': observed_on.isoformat(), 'creators': canonical}, sort_keys=True
+        {'report_date': observed_on.isoformat(), 'creators': canonical, **({'departures': departed_handles} if departed_handles else {})}, sort_keys=True
     ).encode()).hexdigest()
     with database.transaction() as conn:
         latest = database.latest_import()
@@ -464,6 +480,6 @@ def import_spreadsheet(database, path: Path, report_date: date | None = None, pu
             from achievements import record_achievements
             record_achievements(database, previous, observed_on, import_id, publish)
         from website_sync import enqueue
-        enqueue(conn, import_id, snapshot_hash, path.name, observed_on, creators)
+        enqueue(conn, import_id, snapshot_hash, path.name, observed_on, creators, departed_handles)
     return ImportResult(len(creators), file_hash, sum(r['diamonds'] for r in creators),
                         sum(r['battles'] for r in creators), duplicate, observed_on, import_id)

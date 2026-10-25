@@ -40,3 +40,25 @@ class CreatorExportTests(unittest.TestCase):
     def test_seconds_only_and_full_duration(self):
         self.assertEqual(round(parse_number('13s')*3600),13)
         self.assertEqual(round(parse_number('1h 45m 13s')*3600),6313)
+
+    def test_export_departure_status_is_excluded_without_inventing_an_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'Creator_data_2026_10_20.csv'
+            path.write_text("Data period,Creator ID,Creator's username,Diamonds,LIVE duration,Valid go LIVE days,Matches\n"
+                            "2026-10-01 ~ 2026-10-19,123456789,active.creator,100,1h,1,0\n"
+                            "2026-10-01 ~ 2026-10-19,The creator has quit the network,frostbite_poole,10,1h,1,0\n",encoding='utf8')
+            creators,_,observed,departed=load_creators_from_spreadsheet(path,cache_avatars=False,with_report_date=True,with_departures=True)
+            self.assertEqual(observed,date(2026,10,19))
+            self.assertEqual(departed,['frostbite_poole'])
+            self.assertEqual([r['creator_id'] for r in creators],['123456789'])
+            self.assertEqual(creators[0]['rank'],1)
+
+    def test_latest_departure_removes_earlier_rows_of_the_same_creator_from_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'Creator_data_2026_10_20.csv'
+            path.write_text("Data period,Creator ID,Creator's username,Diamonds,LIVE duration,Valid go LIVE days,Matches\n"
+                            "2026-10-19,123456789,active.creator,100,1h,1,0\n"
+                            "2026-10-18,987654321,frostbite_poole,10,1h,1,0\n"
+                            "2026-10-19,The creator has quit the network,frostbite_poole,10,1h,1,0\n",encoding='utf8')
+            creators,_=load_creators_from_spreadsheet(path,cache_avatars=False)
+            self.assertEqual([r['creator_name'] for r in creators],['active.creator'])
