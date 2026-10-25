@@ -6,9 +6,17 @@ import os
 import re
 import urllib.request
 import threading
-from report_identity import without_departed_creators
+from report_identity import without_departed_creators, departed_creator_id
 
 _delivery_lock = threading.Lock()
+_last_queue_signature = None
+_report_logger = logging.getLogger('aether.website_sync')
+if not _report_logger.handlers:
+    _report_handler = logging.StreamHandler()
+    _report_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+    _report_logger.addHandler(_report_handler)
+_report_logger.setLevel(logging.INFO)
+_report_logger.propagate = False
 
 
 def initialize(conn):
@@ -20,6 +28,8 @@ def initialize(conn):
         excluded_creators TEXT NOT NULL, repaired_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
     if 'membership_synced' not in {row[1] for row in conn.execute('PRAGMA table_info(website_report_outbox)')}:
         conn.execute('ALTER TABLE website_report_outbox ADD COLUMN membership_synced INTEGER NOT NULL DEFAULT 0')
+    if 'departure_checked' not in {row[1] for row in conn.execute('PRAGMA table_info(website_report_outbox)')}:
+        conn.execute('ALTER TABLE website_report_outbox ADD COLUMN departure_checked INTEGER NOT NULL DEFAULT 0')
 
 
 def enqueue(conn, import_id, digest, filename, observed_on, creators, departed_handles=()):
@@ -49,6 +59,7 @@ def flush(database):
 
 
 def _flush(database):
+    global _last_queue_signature
     url = os.environ.get('SUPABASE_URL', '').rstrip('/')
     secret = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
     if not url or not secret:
@@ -60,13 +71,27 @@ def _flush(database):
         headers['Authorization'] = 'Bearer ' + secret
     with database.connect() as conn:
         initialize(conn)
-        rows = conn.execute('SELECT * FROM website_report_outbox WHERE delivered=0 OR membership_synced=0 ORDER BY import_id LIMIT 20').fetchall()
+        rows = conn.execute('SELECT * FROM website_report_outbox WHERE delivered=0 OR membership_synced=0 OR departure_checked=0 ORDER BY import_id LIMIT 20').fetchall()
+    signature = tuple((row['import_id'], row['delivered'], row['membership_synced'], row['departure_checked']) for row in rows)
+    if signature != _last_queue_signature:
+        _report_logger.info('Website queue batch: %s pending report deliveries; %s membership/departure checks; import IDs=%s',
+                            sum(not row['delivered'] for row in rows), len(rows), [row['import_id'] for row in rows])
+        _last_queue_signature = signature
     for row in rows:
         original = json.loads(row['payload'])
         departures = set(original.get('departures', []))
         with database.connect() as conn:
             repair = conn.execute('SELECT excluded_creators FROM website_report_repairs WHERE import_id=?', (row['import_id'],)).fetchone()
             run = conn.execute('SELECT imported_at FROM import_runs WHERE id=?', (row['import_id'],)).fetchone()
+            snapshots = conn.execute('SELECT payload FROM creator_snapshots WHERE import_id=?', (row['import_id'],)).fetchall()
+        # A manually cleaned outbox may have no repair receipt. The original
+        # local snapshot still records TikTok's explicit departure status.
+        for snapshot in snapshots:
+            person = json.loads(snapshot[0])
+            if departed_creator_id(person.get('creator_id')):
+                handle = str(person.get('creator_name', '')).strip().lstrip('@').lower()
+                if re.fullmatch(r'[a-z0-9_.]{2,24}', handle):
+                    departures.add(handle)
         if repair:
             departures.update(person['handle'] for person in json.loads(repair[0]))
         try:
@@ -81,7 +106,7 @@ def _flush(database):
                              (row['import_id'], row['payload'], json.dumps(excluded)))
                 conn.execute('UPDATE website_report_outbox SET payload=? WHERE import_id=? AND delivered=0 AND payload=?',
                              (json.dumps(payload), row['import_id'], row['payload']))
-            logging.info('Preserved original import %s payload and excluded %s TikTok departure status row(s) from website delivery.', row['import_id'], len(excluded))
+            _report_logger.info('Preserved original import %s payload and excluded %s TikTok departure status row(s) from website delivery.', row['import_id'], len(excluded))
         with database.connect() as conn:
             conn.execute('UPDATE website_report_outbox SET attempts=attempts+1 WHERE import_id=?', (row['import_id'],))
         # Membership metadata is a separate service call. Do not change exact
@@ -110,7 +135,8 @@ def _flush(database):
             logging.warning('Website report delivery pending for import %s; stage=%s; reason=%s; will retry.', row['import_id'],stage,safe_api_error(error))
             return 'pending'
         with database.connect() as conn:
-            conn.execute('UPDATE website_report_outbox SET delivered=1,membership_synced=1 WHERE import_id=?', (row['import_id'],))
+            conn.execute('UPDATE website_report_outbox SET delivered=1,membership_synced=1,departure_checked=1 WHERE import_id=?', (row['import_id'],))
+        _report_logger.info('Website import %s synced; explicit departures=%s.', row['import_id'], len(departures))
     return 'synced' if len(rows) < 20 else 'pending'
 
 

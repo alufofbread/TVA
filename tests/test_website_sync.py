@@ -106,3 +106,18 @@ class WebsiteSyncTests(unittest.TestCase):
             self.assertEqual(membership.call_args.args[3],['frostbite_poole'])
         with self.db.connect() as conn:
             self.assertEqual(conn.execute('select membership_synced from website_report_outbox').fetchone()[0],1)
+
+    def test_departure_recovered_from_original_snapshot_after_outbox_was_manually_cleaned(self):
+        from website_sync import initialize
+        with self.db.connect() as conn:
+            initialize(conn)
+            conn.execute('update website_report_outbox set delivered=1,membership_synced=1')
+            conn.execute('insert into creator_snapshots(creator_id,report_date,import_id,payload) values(?,?,?,?)',
+                         ('The creator has quit the network','2026-09-03',1,json.dumps({'creator_id':'The creator has quit the network','creator_name':'frostbite_poole'})))
+        env={'SUPABASE_URL':'https://test.supabase.co','SUPABASE_SERVICE_ROLE_KEY':'test-secret'}
+        with patch.dict(os.environ,env,clear=True),patch('urllib.request.urlopen') as send,patch('network_membership.sync_report') as membership:
+            self.assertEqual(flush(self.db),'synced')
+            send.assert_not_called()
+            self.assertEqual(membership.call_args.args[3],['frostbite_poole'])
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute('select departure_checked from website_report_outbox').fetchone()[0],1)
