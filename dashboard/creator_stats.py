@@ -21,6 +21,7 @@ from dashboard.style import (
 )
 from dashboard.creator_theme import COLORS, canvas, rounded, text, rail, bloom, diamond
 from dashboard.trends import TrendPoint, load_creator_daily_trends
+from dashboard.league_badges import badge_name, draw_badge
 from importer import get_active_incentive_tier, get_next_tier, get_tier
 
 
@@ -229,8 +230,7 @@ def _daily_diamonds_chart(draw, points):
         if index and (point.report_date-points[index-1].report_date).days == 1:
             px,py=coords[index-1]
             line(draw,(px,py,x,y),COLORS["purple"],2)
-        bloom(draw,(x-4,y-4,x+4,y+4),COLORS["purple"],90,6)
-        diamond(draw,x,y,4,"#DDD1FF")
+        draw.ellipse(((x-3)*2,(y-3)*2,(x+3)*2,(y+3)*2),fill="#DDD1FF")
     text(draw,(left,677),points[0].report_date.strftime("%d %b"),11,COLORS["muted"],False,"lm")
     if len(points)>1:
         text(draw,(right,677),points[-1].report_date.strftime("%d %b"),11,COLORS["muted"],False,"rm")
@@ -257,17 +257,15 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     text(draw,(174,143),f"Rank #{creator.rank} of {total_creators}",16,COLORS["subtext"],True,"lm")
     rounded(draw,(486,39,642,161),14,"#15162E","#514675")
     text(draw,(564,55),"CURRENT LEAGUE",10,COLORS["muted"],True,"ma")
-    diamond(draw,564,86,12,COLORS["blue"],outline=True)
-    text(draw,(564,116),league_name(creator.tier).upper(),23,COLORS["text"],True,"mm")
-    text(draw,(564,145),f"TIER {creator.tier}",11,COLORS["purple"],True,"mm")
+    draw_badge(image,badge_name(league_name(creator.tier)),(500,69,628,143))
+    text(draw,(564,151),f"TIER {creator.tier}",10,COLORS["subtext"],True,"mm")
 
     # Month-to-date: one large diamond total, with secondary metrics beside it.
     panel((20,197,662,700))
     text(draw,(44,219),"MONTH TO DATE",20,COLORS["text"],True)
-    bloom(draw,(65,274,223,337),COLORS["purple"],40,24)
-    _profile_icon(draw,155,288,"diamonds",COLORS["purple"],40)
-    text(draw,(44,364),fit_text(format_int(creator.diamonds),263,54,True),54,COLORS["text"],True,"lm")
-    text(draw,(47,399),"D I A M O N D S",12,COLORS["purple"],True,"lm")
+    text(draw,(47,288),"TOTAL DIAMONDS",11,COLORS["muted"],True)
+    text(draw,(44,344),fit_text(format_int(creator.diamonds),263,54,True),54,COLORS["text"],True,"lm")
+    text(draw,(47,390),"MONTHLY PERFORMANCE",10,COLORS["purple"],True,"lm")
     for x,value,label,kind,color in (
         (358,format_hours(creator.hours),"LIVE HOURS","hours",COLORS["blue"]),
         (470,str(creator.days),"VALID DAYS","days",COLORS["purple"]),
@@ -291,24 +289,22 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
 
     # Tier journey retains the original tier-relative percentage and thresholds.
     panel((682,20,1520,316))
-    text(draw,(708,43),"TIER UP",24,COLORS["text"],True)
-    text(draw,(837,53),"Your next milestone.",15,COLORS["purple"])
+    text(draw,(708,43),"LEAGUE JOURNEY",22,COLORS["text"],True)
+    text(draw,(1494,55),"YOUR NEXT MILESTONE",10,COLORS["muted"],True,"rm")
     rounded(draw,(706,88,1496,247),16,"#101529","#3D3458")
-    text(draw,(730,110),"CURRENT TIER",11,COLORS["blue"],True)
-    text(draw,(730,153),current_label,33,COLORS["text"],True,"lm")
-    text(draw,(730,196),league_name(get_tier(creator.diamonds)).upper(),12,COLORS["muted"],True)
+    text(draw,(801,111),current_label.upper(),11,COLORS["subtext"],True,"mm")
+    draw_badge(image,badge_name(league_name(get_tier(creator.diamonds))),(726,130,876,232))
     remaining=max(0,threshold-creator.diamonds) if threshold else 0
     text(draw,(1094,127),format_int(remaining),37,COLORS["text"],True,"mm")
     text(draw,(1094,158),"Diamonds to go" if threshold else "Highest tier achieved",14,COLORS["subtext"],False,"mm")
     rail(draw,930,186,326,16,pct,hero=True)
     target_text=f"{format_int(creator.diamonds)} / {format_int(threshold)}" if threshold else format_int(creator.diamonds)
     text(draw,(1094,226),target_text,13,COLORS["muted"],False,"mm")
-    text(draw,(1342,111),"NEXT TIER" if threshold else "COMPLETED",11,COLORS["purple"],True)
-    text(draw,(1342,153),next_label,30,COLORS["text"],True,"lm")
-    diamond(draw,1465,157,16,COLORS["purple"],outline=True)
-    text(draw,(1342,198),f"{pct:.1f}%",22,COLORS["purple"],True)
     reward_tier=get_tier(creator.diamonds) if threshold is None else int(next_label.replace("Tier ",""))
-    text(draw,(710,277),f"Reward: {league_name(reward_tier)} league + {league_name(reward_tier)} border",14,COLORS["subtext"],False,"lm")
+    text(draw,(1396,111),next_label.upper() if threshold else "HIGHEST TIER",11,COLORS["subtext"],True,"mm")
+    draw_badge(image,badge_name(league_name(reward_tier)),(1320,130,1474,232))
+    text(draw,(710,277),"PROGRESS TO NEXT TIER" if threshold else "JOURNEY COMPLETE",11,COLORS["muted"],True,"lm")
+    text(draw,(1494,277),f"{pct:.1f}%",20,COLORS["purple"],True,"rm")
 
     # Activity and real incentive requirements replace unavailable streak data.
     panel((682,334,1084,537))

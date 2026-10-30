@@ -20,9 +20,6 @@ def canvas(width, height):
     draw = ImageDraw.Draw(image)
     for offset in (0, 34, 68):
         draw.arc((int((710+offset)*2), -680, int((1600+offset)*2), 820), 35, 255, fill='#211E38', width=2)
-    # Fixed positions keep previews deterministic; these sit beneath every panel.
-    for x,y in ((1012,16),(1049,303),(23,433),(664,294),(804,23),(1052,617),(21,697)):
-        diamond(draw, x, y, 2, '#3B365A')
     return image, draw
 
 def rounded(draw, box, radius, fill, outline=None, width=1):
@@ -75,9 +72,6 @@ def rail(draw, x, y, width, height, pct, hero=False, accent=None):
         for fraction in (.25,.5,.75):
             mx = x + int(width*fraction)
             draw.line((mx*2,(y+height+5)*2,mx*2,(y+height+8)*2), fill='#646082', width=2)
-        endpoint = x + filled - min(4, filled//2)
-        diamond(draw, endpoint, y+height//2, 5, '#EEE7FF')
-        diamond(draw, x+width, y+height//2, 5, '#BEB0FF', outline=True)
 
 
 def bloom(draw, box, color, opacity=45, blur=16):

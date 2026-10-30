@@ -10,29 +10,29 @@ from branding import BLUE, PINK
 ROOT = Path(__file__).resolve().parent
 
 LEAGUE_NAMES = {
-    1: "Rookie",
-    2: "Rookie",
-    3: "Pro",
-    4: "Pro",
-    5: "All Star",
-    6: "All Star",
-    7: "Elite",
-    8: "Elite",
-    9: "Elite",
-    10: "Elite",
+    1: "Rising",
+    2: "Star",
+    3: "Star",
+    4: "Premier",
+    5: "Elite",
+    6: "Elite",
+    7: "Millionaire",
+    8: "Millionaire",
+    9: "Icon",
+    10: "Icon",
 }
 
 LEAGUE_COLORS = {
-    1: "#22C55E",
-    2: "#4ADE80",
-    3: "#38BDF8",
-    4: "#2563EB",
-    5: "#FACC15",
-    6: "#F59E0B",
-    7: "#A78BFA",
-    8: "#A78BFA",
-    9: "#8B5CF6",
-    10: "#6D28D9",
+    1: "#D9E0EC",
+    2: "#3298FF",
+    3: "#3298FF",
+    4: "#9861FF",
+    5: "#F15ABC",
+    6: "#F15ABC",
+    7: "#E9BD47",
+    8: "#E9BD47",
+    9: "#ED4056",
+    10: "#ED4056",
 }
 
 COLORS = {
