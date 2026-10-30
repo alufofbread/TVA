@@ -131,8 +131,9 @@ def _flush(database):
                 provision_members()
         except Exception as error:
             # Never print request headers, raw response bodies or creator data.
-            from onboarding import safe_api_error
-            logging.warning('Website report delivery pending for import %s; stage=%s; reason=%s; will retry.', row['import_id'],stage,safe_api_error(error))
+            from onboarding import safe_api_error, report_sync_hint
+            reason=safe_api_error(error)
+            logging.warning('Website report delivery pending for import %s; stage=%s; reason=%s; action=%s Later reports remain queued behind this import; will retry.', row['import_id'],stage,reason,report_sync_hint(reason))
             return 'pending'
         with database.connect() as conn:
             conn.execute('UPDATE website_report_outbox SET delivered=1,membership_synced=1,departure_checked=1 WHERE import_id=?', (row['import_id'],))

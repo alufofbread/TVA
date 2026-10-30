@@ -13,6 +13,23 @@ class OnboardingError(RuntimeError):
     pass
 
 
+def report_sync_hint(reason):
+    """Fixed operator guidance only; never include raw API error contents."""
+    return {
+        'manager_account_missing': 'Check the report manager email or configured alias; no matching account exists.',
+        'manager_account_ambiguous': 'Resolve duplicate manager username or email mappings.',
+        'manager_account_banned': 'Review the banned manager assignment; retries cannot resolve it.',
+        'manager_account_disabled': 'Review the disabled manager assignment; no unfinished staff invitation permits holding history.',
+        'manager_account_wrong_role': 'The report identity matches an account whose role is not manager.',
+        'manager_account_missing_or_ambiguous': 'Database returned the legacy manager error; apply migration 023 for pending invitations and specific diagnostics.',
+        'database_migration_missing': 'Apply the required database migration before retrying.',
+        'service_key_rejected': 'Check the server Supabase credential and project configuration.',
+        'service_key_permissions': 'Check the service credential permissions.',
+        'supabase_rate_limited': 'Wait for the Supabase rate limit to clear.',
+        'supabase_connection_failed': 'Check network connectivity and Supabase availability.',
+    }.get(reason, 'Review the failing stage and safe reason code.')
+
+
 def safe_api_error(error):
     """Return fixed diagnostic codes; never echo server bodies or credentials."""
     if isinstance(error,urllib.error.HTTPError):
@@ -22,6 +39,12 @@ def safe_api_error(error):
         messages={
             'Report manager must match exactly one active manager account':'manager_account_missing_or_ambiguous',
             'Report manager has no active manager account':'manager_account_missing_or_ambiguous',
+            'Report manager account was not found':'manager_account_missing',
+            'Report manager matches multiple eligible manager accounts':'manager_account_ambiguous',
+            'Report manager matches multiple ineligible manager accounts':'manager_account_ambiguous',
+            'Report manager account is banned':'manager_account_banned',
+            'Report manager account is disabled without pending staff setup':'manager_account_disabled',
+            'Report manager identity belongs to a non-manager account':'manager_account_wrong_role',
             'Import login conflict':'existing_login_conflict',
             'Creator already has an account':'existing_login_conflict',
             'Creator password unavailable':'creator_password_unavailable',
@@ -50,6 +73,8 @@ def safe_api_error(error):
         'supabase_request_failed','database_migration_missing','service_key_permissions',
         'account_or_report_conflict','service_key_rejected','supabase_rate_limited',
         'manager_account_missing_or_ambiguous','creator_password_unavailable',
+        'manager_account_missing','manager_account_ambiguous','manager_account_banned',
+        'manager_account_disabled','manager_account_wrong_role',
         'report_identity_conflict','invalid_report_arrays','invalid_report_metadata',
         'invalid_report_creator','duplicate_report_creators','invalid_report_metrics'}:
         return str(error)
