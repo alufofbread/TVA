@@ -1,10 +1,26 @@
 import unittest
+from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from database import Creator
+from dashboard.creator_stats import render_creator_stats
 from importer import get_tier
 from dashboard.style import league_name
 from dashboard.league_badges import badge_name
 
 
 class LeagueBoundaryTests(unittest.TestCase):
+    def test_card_does_not_show_stale_saved_tier(self):
+        creator=Creator('fixture','example.creator',1000000,40,15,0,100,1,2,'ACHIEVED','','','','')
+        with TemporaryDirectory() as folder:
+            stale=Path(folder)/'stale.png'
+            current=Path(folder)/'current.png'
+            render_creator_stats(creator,10,stale,trend_points=[])
+            render_creator_stats(replace(creator,tier=7),10,current,trend_points=[])
+            self.assertEqual(stale.read_bytes(),current.read_bytes(),
+                             'Saved tier 1 must not override the monthly Millionaire badge, tier label or border')
+            self.assertEqual(creator.tier,1,'Rendering must preserve historical database values')
+
     def test_league_changes_only_at_confirmed_boundary(self):
         cases=[(0,1,'Rising'),(99999,1,'Rising'),(100000,2,'Star'),
                (199999,2,'Star'),(200000,3,'Star'),(299999,3,'Star'),

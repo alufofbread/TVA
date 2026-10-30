@@ -240,6 +240,9 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     # Referrals are intentionally hidden on this profile. Keep the argument and
     # referral renderers above so tracking, rewards, and existing callers survive.
     image, draw = canvas(1540, 720)
+    # This card shows current-month performance. The persisted creator tier can
+    # represent a previous month and may stay at its default without that data.
+    display_tier = get_tier(creator.diamonds)
     current_label, next_label, threshold, pct = _next_tier_progress(creator.diamonds)
     points = load_creator_daily_trends(creator) if trend_points is None else trend_points
     panel = lambda box: rounded(draw, box, 18, COLORS["panel_alt"], COLORS["border"])
@@ -247,7 +250,7 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     # Identity / current league, following the supplied two-column reference.
     panel((20,20,662,181))
     bloom(draw,(40,48,145,153),COLORS["blue"],85,17)
-    circular_avatar(image,draw,42,47,106,creator.creator_name,creator.rank,creator.avatar_path,league_color(creator.tier),str(creator.tier))
+    circular_avatar(image,draw,42,47,106,creator.creator_name,creator.rank,creator.avatar_path,league_color(display_tier),str(display_tier))
     if LOGO_PATH.exists():
         draw_aether_logo(image,draw,171,30,128,25,framed=False)
     else:
@@ -257,8 +260,8 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     text(draw,(174,143),f"Rank #{creator.rank} of {total_creators}",16,COLORS["subtext"],True,"lm")
     rounded(draw,(486,39,642,161),14,"#15162E","#514675")
     text(draw,(564,55),"CURRENT LEAGUE",10,COLORS["muted"],True,"ma")
-    draw_badge(image,badge_name(league_name(creator.tier)),(500,69,628,143))
-    text(draw,(564,151),f"TIER {creator.tier}",10,COLORS["subtext"],True,"mm")
+    draw_badge(image,badge_name(league_name(display_tier)),(500,69,628,143))
+    text(draw,(564,151),f"TIER {display_tier}",10,COLORS["subtext"],True,"mm")
 
     # Month-to-date: one large diamond total, with secondary metrics beside it.
     panel((20,197,662,700))
