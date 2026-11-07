@@ -13,13 +13,16 @@ def timestamp(value):
     return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc)
 
 
-def merge_report(current, payload, departed_handles, imported_at):
+def merge_report(current, payload, departed_handles, imported_at, *, complete_roster=False):
     if not isinstance(current, dict) or current.get('version') != 1 or not isinstance(current.get('creators'), dict):
         raise ValueError('Invalid membership feed')
     result = {'version': 1, 'creators': dict(current['creators'])}
     observed_on = date.fromisoformat(payload['report']['end'])
     revision = timestamp(imported_at)
     active = {row['handle']: row['id'] for row in payload['creators']}
+    if complete_roster:
+        if not active:raise ValueError('An empty/failed import cannot confirm agency departures')
+        departed_handles=set(departed_handles)|(set(current['creators'])-set(active))
     if set(active).intersection(departed_handles):
         raise ValueError('Conflicting membership status')
     updates = {handle: {'id': creator_id, 'active': True} for handle, creator_id in active.items()}
@@ -36,7 +39,7 @@ def merge_report(current, payload, departed_handles, imported_at):
     return result
 
 
-def sync_report(base, headers, payload, departed_handles, imported_at):
+def sync_report(base, headers, payload, departed_handles, imported_at, *, complete_roster=False):
     # The TVA outbox delivery lock serialises writes; keep one running TVA instance.
     url = base + '/storage/v1/object/' + BUCKET + '/' + OBJECT
     request = urllib.request.Request(url, headers={**headers, 'Cache-Control': 'no-cache'}, method='GET')
@@ -45,7 +48,7 @@ def sync_report(base, headers, payload, departed_handles, imported_at):
     if len(raw) > 2000000:
         raise ValueError('Membership feed is too large')
     current = json.loads(raw)
-    updated = merge_report(current, payload, departed_handles, imported_at)
+    updated = merge_report(current, payload, departed_handles, imported_at,complete_roster=complete_roster)
     if updated == current:
         return
     encoded = json.dumps(updated).encode()

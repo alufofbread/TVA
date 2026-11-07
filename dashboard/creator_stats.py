@@ -209,41 +209,30 @@ def _profile_icon(draw, x, y, kind, color, size=18):
         line(draw, (x-15,y+10,x+15,y+10), color)
 
 
-def _daily_diamonds_chart(draw, points):
-    text(draw, (44, 499), "DIAMONDS OVER TIME", 13, COLORS["subtext"], True)
-    text(draw, (634, 502), "DAILY HISTORY", 10, COLORS["muted"], True, "ra")
-    if not points:
-        text(draw, (44, 559), "Your daily story starts here.", 22, COLORS["text"], True)
-        text(draw, (44, 597), "Import daily reports to see your progress.", 14, COLORS["muted"])
-        return
-    points = sorted(points, key=lambda point: point.report_date)
-    left, top, right, bottom = 90, 544, 625, 658
-    maximum = max(1, max(point.diamonds for point in points))
-    for step in range(4):
-        y = bottom - int((bottom-top)*step/3)
-        line(draw, (left,y,right,y), "#252B43")
-        text(draw, (left-12,y), format_int(maximum*step/3), 10, COLORS["muted"], False, "rm")
-    span = max(1, (points[-1].report_date-points[0].report_date).days)
-    coords = [(left+int((right-left)*(point.report_date-points[0].report_date).days/span), bottom-int((bottom-top)*point.diamonds/maximum)) for point in points]
-    # Only plot reported dates. Gaps stay unconnected rather than implying daily data.
-    for index, ((x,y),point) in enumerate(zip(coords,points)):
-        if index and (point.report_date-points[index-1].report_date).days == 1:
-            px,py=coords[index-1]
-            line(draw,(px,py,x,y),COLORS["purple"],2)
-        draw.ellipse(((x-3)*2,(y-3)*2,(x+3)*2,(y+3)*2),fill="#DDD1FF")
-    text(draw,(left,677),points[0].report_date.strftime("%d %b"),11,COLORS["muted"],False,"lm")
-    if len(points)>1:
-        text(draw,(right,677),points[-1].report_date.strftime("%d %b"),11,COLORS["muted"],False,"rm")
+def _daily_diamonds_chart(draw, points, days=7, history=None, end=None):
+    from dashboard.daily_graph import draw_daily_graph
+    from report_window import calendar_window
+    rows=calendar_window(history or [],days,end=end)
+    if history is None:
+        direct={point.report_date:point.diamonds for point in points}
+        rows=[dict(date=row['date'],diamonds=direct.get(row['date'])) for row in rows]
+    text(draw,(44,499),"DAILY DIAMONDS",13,COLORS["subtext"],True)
+    text(draw,(634,502),f"LAST {days} DAYS / UK",10,COLORS["muted"],True,"ra")
+    draw_daily_graph(draw,rows,(88,539,610,637),small=True)
+    text(draw,(44,686),"0 = verified zero | — = missing report / baseline",10,COLORS["muted"])
 
 
-def render_creator_stats(creator: Creator, total_creators: int, output_path: Path, referrals: list[Referral] | None = None, trend_points: list[TrendPoint] | None = None) -> Path:
+def render_creator_stats(creator: Creator, total_creators: int, output_path: Path, referrals: list[Referral] | None = None, trend_points: list[TrendPoint] | None = None, *, league_context=None, graph_history=None, graph_days=7, as_of=None) -> Path:
     # Referrals are intentionally hidden on this profile. Keep the argument and
     # referral renderers above so tracking, rewards, and existing callers survive.
     image, draw = canvas(1540, 720)
     # This card shows current-month performance. The persisted creator tier can
     # represent a previous month and may stay at its default without that data.
-    display_tier = get_tier(creator.diamonds)
-    current_label, next_label, threshold, pct = _next_tier_progress(creator.diamonds)
+    confirmed=(league_context or {}).get('league') or {}
+    current_name=confirmed.get('name')
+    published=(league_context or {}).get('rules',[])
+    current_rule=next((rule for rule in published if rule['name']==current_name),None)
+    display_tier=current_rule['rank'] if current_rule else 1
     points = load_creator_daily_trends(creator) if trend_points is None else trend_points
     panel = lambda box: rounded(draw, box, 18, COLORS["panel_alt"], COLORS["border"])
 
@@ -260,8 +249,11 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
     text(draw,(174,143),f"Rank #{creator.rank} of {total_creators}",16,COLORS["subtext"],True,"lm")
     rounded(draw,(486,39,642,161),14,"#15162E","#514675")
     text(draw,(564,55),"CURRENT LEAGUE",10,COLORS["muted"],True,"ma")
-    draw_badge(image,badge_name(league_name(display_tier)),(500,69,628,143))
-    text(draw,(564,151),f"TIER {display_tier}",10,COLORS["subtext"],True,"mm")
+    if current_name and badge_name(current_name) in ('rising','star','premier','elite','millionaire','icon'):
+        draw_badge(image,badge_name(current_name),(500,69,628,143))
+    else:
+        text(draw,(564,106),'AWAITING DATA',12,COLORS['muted'],True,'mm')
+    text(draw,(564,151),fit_text(current_name or "NOT CONFIRMED",145,10,True),10,COLORS["subtext"],True,"mm")
 
     # Month-to-date: one large diamond total, with secondary metrics beside it.
     panel((20,197,662,700))
@@ -288,26 +280,27 @@ def render_creator_stats(creator: Creator, total_creators: int, output_path: Pat
             text(draw,(x,477),label,9,COLORS["muted"],True,"mm")
     else:
         text(draw,(44,458),"Daily performance appears when reports are available.",14,COLORS["muted"])
-    _daily_diamonds_chart(draw,points)
+    _daily_diamonds_chart(draw,points,graph_days,graph_history,as_of)
 
-    # Tier journey retains the original tier-relative percentage and thresholds.
+    # Current award and current-month projection use published website rules.
+    from website_statistics import projection
+    projected,next_rule=projection(league_context)
     panel((682,20,1520,316))
     text(draw,(708,43),"LEAGUE JOURNEY",22,COLORS["text"],True)
-    text(draw,(1494,55),"YOUR NEXT MILESTONE",10,COLORS["muted"],True,"rm")
+    text(draw,(1494,55),"PUBLISHED WEBSITE RULES",10,COLORS["muted"],True,"rm")
     rounded(draw,(706,88,1496,247),16,"#101529","#3D3458")
-    text(draw,(801,111),current_label.upper(),11,COLORS["subtext"],True,"mm")
-    draw_badge(image,badge_name(league_name(get_tier(creator.diamonds))),(726,130,876,232))
-    remaining=max(0,threshold-creator.diamonds) if threshold else 0
-    text(draw,(1094,127),format_int(remaining),37,COLORS["text"],True,"mm")
-    text(draw,(1094,158),"Diamonds to go" if threshold else "Highest tier achieved",14,COLORS["subtext"],False,"mm")
-    rail(draw,930,186,326,16,pct,hero=True)
-    target_text=f"{format_int(creator.diamonds)} / {format_int(threshold)}" if threshold else format_int(creator.diamonds)
-    text(draw,(1094,226),target_text,13,COLORS["muted"],False,"mm")
-    reward_tier=get_tier(creator.diamonds) if threshold is None else int(next_label.replace("Tier ",""))
-    text(draw,(1396,111),next_label.upper() if threshold else "HIGHEST TIER",11,COLORS["subtext"],True,"mm")
-    draw_badge(image,badge_name(league_name(reward_tier)),(1320,130,1474,232))
-    text(draw,(710,277),"PROGRESS TO NEXT TIER" if threshold else "JOURNEY COMPLETE",11,COLORS["muted"],True,"lm")
-    text(draw,(1494,277),f"{pct:.1f}%",20,COLORS["purple"],True,"rm")
+    text(draw,(733,117),"CURRENT / PREVIOUS FULL MONTH",12,COLORS['muted'],True)
+    text(draw,(733,153),current_name or 'Awaiting verified history',25,COLORS['text'],True)
+    text(draw,(733,190),"PROJECTED NEXT-MONTH LEAGUE",12,COLORS['muted'],True)
+    text(draw,(733,224),projected['name'] if projected else 'Awaiting published report data',22,COLORS['purple'],True)
+    text(draw,(1130,117),"NEXT PUBLISHED TARGET",12,COLORS['muted'],True)
+    text(draw,(1130,153),next_rule['name'] if next_rule else 'No next target available',22,COLORS['text'],True)
+    if next_rule:
+        for index,q in enumerate(next_rule['requirements'][:3]):
+            actual=(league_context or {}).get(q['type'])
+            value='Unavailable' if actual is None else format_int(actual)
+            text(draw,(1130,185+index*20),f"{q['type']}: {value} / {format_int(q['value'])}",13,COLORS['subtext'])
+    text(draw,(710,277),"Projection is not a confirmed league award.",13,COLORS['muted'])
 
     # Activity and real incentive requirements replace unavailable streak data.
     panel((682,334,1084,537))

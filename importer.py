@@ -24,6 +24,17 @@ class ImportErrorWithContext(ValueError):
     pass
 
 
+def required_metric(value):
+    """Missing/invalid exported metrics must not silently become zero."""
+    if pd.isna(value) or isinstance(value,bool):
+        raise ImportErrorWithContext('A required report metric is missing; no records were imported.')
+    raw=str(value).strip()
+    if not (re.fullmatch(r'[+-]?[0-9][0-9,]*(?:\.[0-9]+)?',raw) or
+            re.fullmatch(r'(?:(?:\d+)\s*h\s*)?(?:(?:\d+)\s*m\s*)?(?:(?:\d+)\s*s\s*)?',raw.lower()) and raw):
+        raise ImportErrorWithContext('A report metric is not numeric; no records were imported.')
+    return parse_number(value)
+
+
 @dataclass(slots=True)
 class ImportResult:
     creator_count: int
@@ -288,7 +299,8 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
 
     if report_date is None:
         raise ImportErrorWithContext("Cannot determine report date. Include Data period, use a dated Creator data filename, or supply report_date (YYYY-MM-DD).")
-    if report_date > date.today():
+    from report_window import uk_today
+    if report_date > uk_today():
         raise ImportErrorWithContext("Report effective date cannot be in the future.")
 
     if report_date is not None and "_period_end" in df.columns:
@@ -314,7 +326,7 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
             raise ImportErrorWithContext('This report has no active creator records after excluding TikTok departure status rows.')
 
     for metric in ("diamonds", "hours", "days", "battles"):
-        df[metric] = df[metric].apply(parse_number)
+        df[metric] = df[metric].apply(required_metric)
 
     if "creator_id" not in df.columns:
         df["creator_id"] = df["creator_name"].apply(_creator_id)
@@ -367,6 +379,21 @@ def load_creators_from_spreadsheet(path: Path, report_date: date | None = None, 
 
     grouped_rows: list[dict[str, Any]] = []
     for creator_name, group in df.sort_values(["creator_name", "_period_sort"]).groupby("creator_name", sort=False):
+        if len(group)>1:
+            # Exports are reporting snapshots, not transactions. Never add
+            # overlapping month-to-date rows or pick a conflicting duplicate.
+            if '_period_end' not in group or group['_period_end'].isna().any():
+                raise ImportErrorWithContext('Ambiguous duplicate creator rows; supply one exact reporting snapshot.')
+            periods=group['_period_end'].drop_duplicates()
+            if len(periods)>1:
+                import re as _re
+                latest_row=group.iloc[-1]
+                dates=_re.findall(r'\d{4}-\d{2}-\d{2}',str(latest_row.get('data_period','')))
+                if len(dates)<2 or dates[0]!=report_date.replace(day=1).isoformat():
+                    raise ImportErrorWithContext('Multiple reporting periods require a verified month-to-date snapshot; daily rows are not summed implicitly.')
+                group=group[group['_period_end']==group['_period_end'].max()]
+            if len(group)>1:
+                raise ImportErrorWithContext('Conflicting creator snapshots for the same period; correct the export before importing.')
         latest = group.iloc[-1]
         monthly = {
             "creator_name": creator_name,
@@ -480,6 +507,8 @@ def import_spreadsheet(database, path: Path, report_date: date | None = None, pu
             from achievements import record_achievements
             record_achievements(database, previous, observed_on, import_id, publish)
         from website_sync import enqueue
-        enqueue(conn, import_id, snapshot_hash, path.name, observed_on, creators, departed_handles)
+        import os
+        complete_roster=publish and os.environ.get('FULL_AGENCY_REPORTS_ENABLED','false').lower()=='true'
+        enqueue(conn, import_id, snapshot_hash, path.name, observed_on, creators, departed_handles,complete_roster=complete_roster)
     return ImportResult(len(creators), file_hash, sum(r['diamonds'] for r in creators),
                         sum(r['battles'] for r in creators), duplicate, observed_on, import_id)

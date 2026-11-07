@@ -11,6 +11,8 @@ from automation_store import utcnow
 from uuid import uuid4
 from onboarding import rpc
 from summary_membership import membership_at
+from report_window import calendar_window
+from website_statistics import context as statistics_context
 
 
 def fmt(value):
@@ -28,7 +30,7 @@ def build_reports(data):
     managers=data['managers']
     pages=[]
     for offset in range(0,max(1,len(managers)),10):
-        embed=discord.Embed(title='AETHER | Manager performance',description=f"Monthly report: {data['start']} to {data['end']} (UTC)\nAgency diamonds: **{fmt(agency)}**\nAgency target: {progress(agency,(data.get('agency_targets') or {}).get('diamonds'))}\nAgency coverage: {data['agency']['reported']}/{data['agency']['expected']}",color=0x7764FF)
+        embed=discord.Embed(title='AETHER | Manager performance',description=f"Monthly report: {data['start']} to {data['end']} (UK calendar dates)\nAgency diamonds: **{fmt(agency)}**\nAgency target: {progress(agency,(data.get('agency_targets') or {}).get('diamonds'))}\nAgency coverage: {data['agency']['reported']}/{data['agency']['expected']}",color=0x7764FF)
         for manager in managers[offset:offset+10]:
             diamonds=manager['totals']['diamonds']
             share='Unavailable' if agency is None or not agency or diamonds is None else f'{diamonds/agency*100:.1f}%'
@@ -38,7 +40,7 @@ def build_reports(data):
     return pages
 
 
-def enrich_summary(data, roster, database, membership=None):
+def enrich_summary(data, roster, database, membership=None, source=None):
     """Combine creators by their verified manager; daily figures require adjacent snapshots."""
     data = json.loads(json.dumps(data))
     cutoff = date.fromisoformat(data['end'])
@@ -46,11 +48,17 @@ def enrich_summary(data, roster, database, membership=None):
     previous_date = (cutoff - timedelta(days=1)).isoformat()
     data['daily_date'] = daily_date
     membership = membership or {}
+    if source and source.get('complete_roster'):
+        active_ids={row['id'] for row in source['creators'] if row.get('active',row.get('reported'))}
+        roster=[member for member in roster if member['id'] in active_ids]
+    authoritative={row['id']:row for row in source['creators']} if source else {}
+    def history_for(member):
+        return authoritative.get(member['id'],{}).get('history',[]) if source else database.creator_history(member['id'])
     resolved = {}
     for member in roster:
         status = membership.get(member.get('handle', '').lower().lstrip('@'), {})
         departed = status.get('active') is False and status['observed_on'] <= daily_date
-        history = database.creator_history(member['id'])
+        history = history_for(member)
         current = next((row for row in history if row['report_date'] == daily_date), None)
         if departed:
             # Freeze the last verified MTD snapshot in this month, never add
@@ -67,17 +75,27 @@ def enrich_summary(data, roster, database, membership=None):
         for source, target in [('diamonds', 'diamonds'), ('hours', 'live_hours'), ('days', 'valid_days')]:
             result[target] = sum(row[source] for row in rows) if all(row is not None and row.get(source) is not None for row in rows) else None
         return result
-    if has_departures:
+    if has_departures and not source:
         data['agency'] = totals_for(roster)
+    def coverage(members):
+        rows=[authoritative.get(member['id'],resolved[member['id']][0]) or {} for member in members]
+        return {key:dict(known_total=sum(row[key] for row in rows if row.get(key) is not None),
+            reported=sum(row.get(key) is not None for row in rows),expected=len(rows),
+            missing_creator_ids=[member['id'] for member,row in zip(members,rows) if row.get(key) is None])
+            for key in ('diamonds','hours','days')}
+    data['coverage']=coverage(roster)
+    agency_days=[0 if resolved[member['id']][1] and resolved[member['id']][3]['observed_on']<daily_date else calendar_window(history_for(member),3,end=cutoff)[-1]['diamonds'] for member in roster]
+    data['daily_agency']=sum(agency_days) if agency_days and all(value is not None for value in agency_days) else None
     for manager in data['managers']:
         keys = {str(manager.get(key, '')).lower().lstrip('@') for key in ('id', 'account_id', 'username', 'name')}
         keys.discard('')
-        members = [member for member in roster if keys.intersection(
-            {str(member.get('manager_id', '')).lower(), str(member.get('manager', '')).lower().lstrip('@')})]
+        members = [member for member in roster if (str(member.get('manager_id'))==str(manager['id']) if manager.get('id') else keys.intersection(
+            {str(member.get('manager_id', '')).lower(), str(member.get('manager', '')).lower().lstrip('@')}))]
         expected = manager['totals']['expected']
         manager['creator_count'] = sum(not resolved[member['id']][1] for member in members) if members else expected
-        if has_departures and members:
+        if has_departures and members and not source:
             manager['totals'] = totals_for(members)
+        manager['coverage']=coverage(members)
         daily = []
         month_days = []
         for member in members:
@@ -98,10 +116,10 @@ def enrich_summary(data, roster, database, membership=None):
                 value, before = current.get(key), baseline.get(key)
                 # A zero month-to-date metric proves a zero day even for a newly
                 # reported creator. Nonzero values still need a real baseline.
-                difference = 0 if value == 0 else value - before if value is not None and before is not None else None
+                difference = None if value is not None and before is not None and value<before else 0 if value == 0 else value - before if value is not None and before is not None else None
                 delta[key] = difference if difference is not None and difference >= 0 else None
             daily.append(delta)
-        complete = bool(members) and len(daily) == len(members) == expected
+        complete = len(daily) == len(members) == expected
         available = lambda key: complete and all(row[key] is not None for row in daily)
         manager['daily'] = {
             'diamonds': sum(row['diamonds'] for row in daily) if available('diamonds') else None,
@@ -111,8 +129,14 @@ def enrich_summary(data, roster, database, membership=None):
         }
         if complete and not available('hours'):
             manager['daily']['went_live_partial'] = True
-        manager['valid_days'] = (sum(month_days) if members and len(month_days) == len(members) == expected
+        if complete and any(not any(value is not None and value>0 for value in row.values()) and any(value is None for value in row.values()) for row in daily):
+            if manager['daily']['went_live']==0:
+                manager['daily']['went_live']=None
+            manager['daily']['went_live_partial']=True
+        manager['valid_days'] = manager['totals'].get('valid_days',sum(month_days) if members and len(month_days) == len(members) == expected
                                  and all(value is not None for value in month_days) else None)
+        weeks=[calendar_window(history_for(member),7,end=cutoff,metric='hours') for member in members]
+        manager['weekly_hours']=sum(row['diamonds'] for week in weeks for row in week) if len(members)==expected and all(row['diamonds'] is not None for week in weeks for row in week) else None
     data['managers'].sort(key=lambda manager: (manager['totals']['diamonds'] is None,
         -(manager['totals']['diamonds'] or 0), manager['name'].lower()))
     return data
@@ -156,7 +180,8 @@ class ManagerReports:
             data['agency_targets'] = dict(data.get('agency_targets') or {}, diamonds=settings['target'])
         roster=await asyncio.to_thread(rpc,'import_member_roster')
         membership=await asyncio.to_thread(membership_at,db,report_date)
-        data=await asyncio.to_thread(enrich_summary,data,roster,db,membership)
+        source=await statistics_context(report_date)
+        data=await asyncio.to_thread(enrich_summary,data,roster,db,membership,source)
         digest=hashlib.sha256(json.dumps([channel,data],sort_keys=True).encode()).hexdigest()
         if digest==self.digest and not daily:return 0
         logging.getLogger('aether.website_sync').info(
@@ -171,9 +196,12 @@ class ManagerReports:
         images=await asyncio.to_thread(render_manager_summary,data)
         for index,embed in enumerate(pages):
             embed.clear_fields()
-            embed.description=f"Combined creator performance | {data['start']} to {data['end']} (UTC)"
+            embed.description=f"Combined creator performance | {data['start']} to {data['end']} (UK calendar dates)"
             if any(manager['daily'].get('went_live_partial') for manager in data['managers']):
                 embed.description += '\n+ beside a LIVE count means a verified minimum; some activity history is missing.'
+            for metric,coverage in data['coverage'].items():
+                if coverage['reported']<coverage['expected']:
+                    embed.description+=f"\n{metric}: {coverage['reported']}/{coverage['expected']} creators verified; known subtotal {fmt(coverage['known_total'])}. Full total unavailable."
             embed.set_image(url='attachment://aether-manager-summary.png')
             await self.client.publisher.upsert(f'{prefix}:{index}',channel,embed=embed,
                 edit_existing=not daily,

@@ -116,22 +116,11 @@ def load_creator_daily_trends(creator: Creator, upload_dir: Path = UPLOAD_DIR, d
             )
         )
 
-    daily: list[TrendPoint] = []
-    previous: TrendPoint | None = None
-    for snapshot in snapshots:
-        if previous is None:
-            daily.append(snapshot)
-        else:
-            daily.append(
-                TrendPoint(
-                    report_date=snapshot.report_date,
-                    diamonds=max(0, snapshot.diamonds - previous.diamonds),
-                    hours=max(0.0, snapshot.hours - previous.hours),
-                    new_followers=max(0, snapshot.new_followers - previous.new_followers),
-                )
-            )
-        previous = snapshot
-    return daily
+    # Spreadsheet fallback obeys the same adjacent-snapshot rules as SQLite.
+    rows=[dict(report_date=p.report_date.isoformat(),diamonds=p.diamonds,
+               hours=p.hours,new_followers=p.new_followers) for p in snapshots]
+    return [TrendPoint(date.fromisoformat(row['report_date']),row['diamonds'],row['hours'],row['new_followers'])
+            for row in daily_points(rows)]
 
 
 def _compact_number(value: float) -> str:

@@ -10,7 +10,7 @@ def membership_at(database, cutoff):
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if 'website_report_outbox' not in tables:
             return {}
-        rows = conn.execute('''SELECT o.import_id,o.payload,i.imported_at
+        rows = conn.execute('''SELECT o.*,i.imported_at
             FROM website_report_outbox o JOIN import_runs i ON i.id=o.import_id
             ORDER BY o.import_id''').fetchall()
         for row in rows:
@@ -28,5 +28,5 @@ def membership_at(database, cutoff):
                 person = json.loads(snapshot[0])
                 if departed_creator_id(person.get('creator_id')):
                     departed.add(person['creator_name'].strip().lstrip('@').lower())
-            state = merge_report(state, payload, departed, row['imported_at'])
+            state = merge_report(state,payload,departed,row['imported_at'],complete_roster=bool(row['complete_roster']) if 'complete_roster' in row.keys() else False)
     return state['creators']

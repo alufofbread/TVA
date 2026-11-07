@@ -3,6 +3,13 @@ from network_membership import merge_report
 
 
 class NetworkMembershipTests(unittest.TestCase):
+    def test_complete_report_marks_absent_creators_inactive_but_partial_does_not(self):
+        current=merge_report({'version':1,'creators':{}},self.payload(people=[('1','alice'),('2','bob')]),[],'2026-10-20T10:00:00Z')
+        partial=merge_report(current,self.payload('2026-10-20',[('1','alice')]),[],'2026-10-21T10:00:00Z')
+        complete=merge_report(current,self.payload('2026-10-20',[('1','alice')]),[],'2026-10-21T10:00:00Z',complete_roster=True)
+        self.assertTrue(partial['creators']['bob']['active']);self.assertFalse(complete['creators']['bob']['active'])
+        self.assertTrue(current['creators']['bob']['active'])
+
     def payload(self, observed='2026-10-19', people=()):
         return {'report': {'end': observed}, 'creators': [{'id': id, 'handle': handle} for id, handle in people]}
 

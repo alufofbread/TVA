@@ -139,7 +139,7 @@ def render_manager_summary(data):
     cutoff=date.fromisoformat(data['end']);agency=data['agency']['diamonds']
     target=(data.get('agency_targets') or {}).get('diamonds')
     progress=agency/target if agency is not None and target else None
-    group_daily=sum(manager['daily']['diamonds'] for manager in managers) if managers and all(manager['daily']['diamonds'] is not None for manager in managers) else None
+    group_daily=data.get('daily_agency',sum(manager['daily']['diamonds'] for manager in managers) if managers and all(manager['daily']['diamonds'] is not None for manager in managers) else None)
     for offset in range(0,max(1,len(managers)),10):
         slots=max(5,len(managers[offset:offset+10]));height=1536+(slots-5)*146
         image=Image.new('RGB',(2048,height*2),'#02050C');draw=ImageDraw.Draw(image)
@@ -166,7 +166,7 @@ def render_manager_summary(data):
                 accent(image,(title_x,335,right-40,338),('#2F9EFF','#A855D6') if kind=='diamonds' else ('#C33CE9','#9B4BAE'))
         daily_bottom=980+(slots-5)*76
         panel(image,(26,395,998,daily_bottom))
-        label(draw,(55,423),'YESTERDAY',20,WHITE,'heading',tracking=1.5)
+        label(draw,(55,423),'REPORT DAY',20,WHITE,'heading',tracking=1.5)
         line(draw,(187,424,187,442),'#414557')
         label(draw,(205,426),f'{cutoff.day} {cutoff:%b %Y}',17,MUTED)
         accent(image,(55,462,981,463),('#2CA9EF','#50405B'))
@@ -205,6 +205,9 @@ def render_manager_summary(data):
                 if index<len(items)-1:line(draw,(27,y+row_height,997,y+row_height),'#151D2A')
             if not items:label(draw,(512,top+40),'No managers assigned yet',24,MUTED,anchor='mm')
         rows(daily[offset:offset+10],True);rows(monthly[offset:offset+10],False)
+        coverage=data.get('coverage',{}).get('diamonds')
+        if coverage and coverage['reported']<coverage['expected']:
+            label(draw,(512,height-31),f"Verified diamonds: {coverage['reported']}/{coverage['expected']} creators · known subtotal {number(coverage['known_total'])} · full total unavailable",17,MUTED,anchor='mm')
         if len(managers)>10:label(draw,(512,height-25),f'Page {offset//10+1} of {(len(managers)+9)//10}',14,MUTED,anchor='mm')
         output=BytesIO();image.resize((1024,height),Image.Resampling.LANCZOS).save(output,'PNG');pages.append(output.getvalue())
     return pages

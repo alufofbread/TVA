@@ -20,6 +20,7 @@ from dashboard.creator_stats import render_creator_stats
 from dashboard.leaderboard import render_leaderboard
 from dashboard.referrals import render_all_referrals
 from dashboard.trends import load_creator_daily_trends
+from website_statistics import context as statistics_context, creator_context
 from database import Database
 from importer import ImportErrorWithContext, import_spreadsheet
 from config import CHANNEL_PURPOSES, MAX_REPORT_BYTES
@@ -174,7 +175,7 @@ def creator_autocomplete(current: str) -> list[app_commands.Choice[str]]:
     ]
 
 
-async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, str] | None:
+async def render_creator_dashboard_files(creator_id: str, graph_days: int = 7) -> tuple[Path, str] | None:
     await asyncio.to_thread(refresh_website_avatars, bot.database)
     creator = bot.database.find_creator(creator_id)
     if creator is None:
@@ -185,7 +186,12 @@ async def render_creator_dashboard_files(creator_id: str) -> tuple[Path, str] | 
     output_path = DATA_DIR / f"acn-stats-{safe_id}.png"
     referrals = bot.database.get_referrals_for_referrer(creator.creator_id)
     points = await asyncio.to_thread(load_creator_daily_trends, creator, database=bot.database)
-    await asyncio.to_thread(render_creator_stats, creator, len(creators), output_path, referrals, points)
+    latest=bot.database.latest_import()
+    contract=await statistics_context(latest['report_date']) if latest else None
+    verified=creator_context(contract,creator.creator_id)
+    history=verified['history'] if verified else bot.database.creator_history(creator.creator_id)
+    await asyncio.to_thread(render_creator_stats, creator, len(creators), output_path, referrals, points,
+        league_context=verified,graph_history=history,graph_days=graph_days)
     return output_path, creator.creator_name
 
 
@@ -525,9 +531,10 @@ async def leaderboard_command(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="stats", description="Generate an individual creator analytics dashboard.")
-@app_commands.describe(creator_name="Creator username or partial name")
+@app_commands.describe(creator_name="Creator username or partial name",days="Recent UK calendar days (default seven)")
+@app_commands.choices(days=[app_commands.Choice(name="7 days",value=7),app_commands.Choice(name="3 days",value=3)])
 @app_commands.check(bot_controller_check)
-async def stats_command(interaction: discord.Interaction, creator_name: str) -> None:
+async def stats_command(interaction: discord.Interaction, creator_name: str, days: int = 7) -> None:
     await interaction.response.defer(thinking=True)
     async with bot.automation_lock:
         creator = bot.database.find_creator(creator_name)
@@ -535,7 +542,7 @@ async def stats_command(interaction: discord.Interaction, creator_name: str) -> 
             await interaction.followup.send(f"I couldn't find a creator matching '{creator_name}'. Check the spelling or import the latest spreadsheet.")
             return
 
-        rendered = await render_creator_dashboard_files(creator.creator_id)
+        rendered = await render_creator_dashboard_files(creator.creator_id,graph_days=days)
         if rendered is None:
             await interaction.followup.send(f"I couldn't find a creator matching '{creator_name}'. Check the spelling or import the latest spreadsheet.")
             return

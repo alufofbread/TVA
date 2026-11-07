@@ -10,6 +10,36 @@ from website_sync import enqueue, flush
 
 
 class WebsiteSyncTests(unittest.TestCase):
+    def test_complete_export_confirmation_is_separate_from_immutable_report_payload(self):
+        with self.db.connect() as conn:
+            conn.execute('update website_report_outbox set complete_roster=1')
+            original=conn.execute('select payload from website_report_outbox').fetchone()[0]
+        class Response:
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def read(self):return b'"duplicate"'
+        calls=[]
+        def open_request(request,**_):calls.append(request);return Response()
+        env={'SUPABASE_URL':'https://test.supabase.co','SUPABASE_SERVICE_ROLE_KEY':'fixture-only'}
+        with patch.dict(os.environ,env,clear=True),patch('urllib.request.urlopen',side_effect=open_request),patch('network_membership.sync_report') as membership,patch('import_members.provision_members'):
+            self.assertEqual(flush(self.db),'synced')
+        self.assertEqual(calls[1].full_url,'https://test.supabase.co/rest/v1/rpc/confirm_agency_report_roster')
+        self.assertEqual(json.loads(calls[1].data)['expected_creators'],1)
+        self.assertTrue(membership.call_args.kwargs['complete_roster'])
+        with self.db.connect() as conn:self.assertEqual(conn.execute('select payload from website_report_outbox').fetchone()[0],original)
+
+    def test_failed_complete_roster_confirmation_stays_pending(self):
+        with self.db.connect() as conn:conn.execute('update website_report_outbox set complete_roster=1')
+        class Response:
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def read(self):return b'"duplicate"'
+        env={'SUPABASE_URL':'https://test.supabase.co','SUPABASE_SERVICE_ROLE_KEY':'fixture-only'}
+        with patch.dict(os.environ,env,clear=True),patch('urllib.request.urlopen',side_effect=[Response(),OSError('fixture offline')]),patch('network_membership.sync_report') as membership:
+            self.assertEqual(flush(self.db),'pending')
+            membership.assert_not_called()
+        with self.db.connect() as conn:self.assertEqual(conn.execute('select delivered from website_report_outbox').fetchone()[0],0)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

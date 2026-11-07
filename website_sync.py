@@ -30,9 +30,11 @@ def initialize(conn):
         conn.execute('ALTER TABLE website_report_outbox ADD COLUMN membership_synced INTEGER NOT NULL DEFAULT 0')
     if 'departure_checked' not in {row[1] for row in conn.execute('PRAGMA table_info(website_report_outbox)')}:
         conn.execute('ALTER TABLE website_report_outbox ADD COLUMN departure_checked INTEGER NOT NULL DEFAULT 0')
+    if 'complete_roster' not in {row[1] for row in conn.execute('PRAGMA table_info(website_report_outbox)')}:
+        conn.execute('ALTER TABLE website_report_outbox ADD COLUMN complete_roster INTEGER NOT NULL DEFAULT 0')
 
 
-def enqueue(conn, import_id, digest, filename, observed_on, creators, departed_handles=()):
+def enqueue(conn, import_id, digest, filename, observed_on, creators, departed_handles=(), *, complete_roster=False):
     initialize(conn)
     aliases=json.loads(os.environ.get('REPORT_MANAGER_ALIASES','{}'))
     payload = {'creators': [{'id': row['creator_id'], 'handle': row['creator_name'].strip().lstrip('@').lower(),
@@ -48,8 +50,8 @@ def enqueue(conn, import_id, digest, filename, observed_on, creators, departed_h
     # Unknown source metrics (e.g. LIVE streams) stay absent, never invented as zero.
     if departed_handles:
         payload['departures'] = list(departed_handles)
-    conn.execute('INSERT OR IGNORE INTO website_report_outbox(import_id,payload) VALUES (?,?)',
-                 (import_id, json.dumps(payload)))
+    conn.execute('INSERT OR IGNORE INTO website_report_outbox(import_id,payload,complete_roster) VALUES (?,?,?)',
+                 (import_id, json.dumps(payload),int(complete_roster)))
 
 
 def flush(database):
@@ -122,9 +124,18 @@ def _flush(database):
                 if outcome not in ('imported', 'duplicate'):
                     raise ValueError('Unexpected report acknowledgement')
             from network_membership import sync_report
+            if row['complete_roster']:
+                stage='confirm_complete_agency_roster'
+                confirmation=urllib.request.Request(url+'/rest/v1/rpc/confirm_agency_report_roster',
+                    data=json.dumps({'report':payload['report']['id'],'expected_creators':len(payload['report']['records']),
+                        'source':'TVA verified complete automatic agency export'}).encode(),headers=headers,method='POST')
+                with urllib.request.urlopen(confirmation,timeout=20) as response:response.read()
             stage='watchlist_membership'
             imported_at = run[0] if run else payload['report']['end'] + 'T23:59:59+00:00'
-            sync_report(url, headers, payload, sorted(departures), imported_at)
+            if row['complete_roster']:
+                sync_report(url,headers,payload,sorted(departures),imported_at,complete_roster=True)
+            else:
+                sync_report(url, headers, payload, sorted(departures), imported_at)
             if not row['delivered']:
                 from import_members import provision_members
                 stage='account_provision'
