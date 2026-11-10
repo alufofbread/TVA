@@ -11,12 +11,12 @@ from report_identity import without_departed_creators, departed_creator_id
 _delivery_lock = threading.Lock()
 _last_queue_signature = None
 _report_logger = logging.getLogger('aether.website_sync')
-if not _report_logger.handlers:
+if not _report_logger.handlers and not logging.getLogger().handlers:
     _report_handler = logging.StreamHandler()
     _report_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
     _report_logger.addHandler(_report_handler)
 _report_logger.setLevel(logging.INFO)
-_report_logger.propagate = False
+_report_logger.propagate = not bool(_report_logger.handlers)
 
 
 def initialize(conn):

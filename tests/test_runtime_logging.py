@@ -15,6 +15,8 @@ class RuntimeLoggingTests(unittest.TestCase):
             output=io.StringIO()
             with patch('sys.stdout',output):
                 configure_logging()
+                import importlib, website_sync
+                importlib.reload(website_sync)
                 report.info('queue healthy')
                 logging.warning('needs attention')
             lines=output.getvalue().splitlines()
