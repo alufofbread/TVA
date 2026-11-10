@@ -156,9 +156,18 @@ def sync_channel_mappings(database):
     from onboarding import rpc
     guild=os.environ.get('DISCORD_GUILD_ID','')
     if not guild.isdigit():return
-    for member in rpc('import_member_roster'):
+    roster=rpc('import_member_roster')
+    if not isinstance(roster,list) or any(not isinstance(row,dict) or not row.get('id') for row in roster):
+        raise ValueError('Invalid creator channel roster')
+    for member in roster:
+        # Keep deleted-channel tombstones and historical assignments. Only
+        # explicit agency departures disable automatic delivery.
+        if member.get('agency_active') is False:
+            database.set_creator_channel_delivery(member['id'],False)
+            continue
         if member.get('channel_id') and database.find_creator(member['id']):
             database.set_creator_channel(member['id'],int(member['channel_id']),int(guild))
+        database.set_creator_channel_delivery(member['id'],True)
 
 
 async def worker(database,on_synced=None):

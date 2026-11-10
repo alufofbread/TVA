@@ -25,7 +25,7 @@ class ChannelOwnershipTests(unittest.TestCase):
         with self.db.connect() as conn:
             for name in ['alice','bob']:
                 conn.execute("insert into creators(creator_id,creator_name,last_updated) values(?,?, 'now')",(name,name))
-                conn.execute("insert into creator_channels values(?,100,1,'now')",(name,))
+                conn.execute("insert into creator_channels(creator_id,channel_id,updated_by,updated_at) values(?,100,1,'now')",(name,))
         self.assertEqual(self.db.get_creator_channels(),[])
         self.db.set_creator_channel('bob',101,1)
         self.assertEqual(len(self.db.get_creator_channels()),2)

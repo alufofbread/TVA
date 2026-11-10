@@ -5,6 +5,7 @@ import logging
 import json
 import hashlib
 import re
+import sys
 from datetime import date
 from pathlib import Path
 from uuid import uuid4
@@ -31,12 +32,24 @@ COMMAND_SYNC_TIMEOUT_SECONDS = 30
 BOT_CONTROLLER_ROLE_NAME = "bot controller"
 
 
+class RailwayLogFormatter(logging.Formatter):
+    def format(self, record):
+        message=record.getMessage()
+        if record.exc_info:
+            message+='\n'+self.formatException(record.exc_info)
+        return json.dumps({'level':'warn' if record.levelno==logging.WARNING else record.levelname.lower(),
+                           'message':message,'logger':record.name})
+
+
 def configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(asctime)s] [%(levelname)-8s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    handler=logging.StreamHandler(sys.stdout)
+    handler.setFormatter(RailwayLogFormatter())
+    logging.basicConfig(level=logging.INFO,handlers=[handler],force=True)
+    # This logger is also used by the standalone sync code, which installs
+    # its own fallback handler. Route it through the application formatter.
+    report_logger=logging.getLogger('aether.website_sync')
+    report_logger.handlers.clear()
+    report_logger.propagate=True
     logging.getLogger("discord.gateway").setLevel(logging.WARNING)
 
 

@@ -206,6 +206,7 @@ class Database(AutomationStore):
                 )
                 """
             )
+            self._ensure_column(conn, 'creator_channels', 'delivery_enabled', 'INTEGER NOT NULL DEFAULT 1')
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS leaderboard_channels (
@@ -463,6 +464,11 @@ class Database(AutomationStore):
                 (creator_id, channel_id, updated_by, now),
             )
 
+    def set_creator_channel_delivery(self, creator_id: str, enabled: bool) -> None:
+        with self.connect() as conn:
+            conn.execute('UPDATE creator_channels SET delivery_enabled=? WHERE creator_id=?',
+                         (int(enabled), creator_id))
+
     def get_creator_channels(self) -> list[CreatorChannel]:
         with self.connect() as conn:
             rows = conn.execute(
@@ -475,7 +481,7 @@ class Database(AutomationStore):
                     cc.updated_at
                 FROM creator_channels cc
                 INNER JOIN creators c ON c.creator_id = cc.creator_id
-                WHERE NOT EXISTS (
+                WHERE cc.delivery_enabled=1 AND NOT EXISTS (
                     SELECT 1 FROM creator_channels other
                     WHERE other.channel_id=cc.channel_id AND other.creator_id<>cc.creator_id
                 )
